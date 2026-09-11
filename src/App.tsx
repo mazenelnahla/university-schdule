@@ -26,8 +26,12 @@ import {
   getStandardPeriods,
   getAllSchedulesWithDetails,
   deleteSchedule,
+  clearAllSchedules,
 } from './db/scheduleService';
-import { resetDatabaseToDefault } from './db/sqlite';
+import {
+  resetDatabaseToEmpty,
+  loadSampleUniversityData,
+} from './db/sqlite';
 import { GraduationCap, Loader2 } from 'lucide-react';
 
 const ADMIN_STORAGE_KEY = 'unischedule_admin_user';
@@ -150,11 +154,37 @@ export function App() {
     setCurrentPage('TIMETABLE');
   };
 
-  // Reset database to default
+  // Reset database to completely empty state (removes all schedules & sample data)
   const handleResetDb = async () => {
-    if (window.confirm('Reset database to default university curriculum and schedule? Any custom edits will be reverted.')) {
+    if (
+      window.confirm(
+        'Are you sure you want to reset and clear everything? All schedules, courses, sections, rooms, professors, and programs will be permanently deleted, leaving an empty database.'
+      )
+    ) {
       setIsLoading(true);
-      await resetDatabaseToDefault();
+      await resetDatabaseToEmpty();
+      await loadData();
+    }
+  };
+
+  // Clear only scheduled timetable sessions (preserves faculty, rooms, courses, programs, sections)
+  const handleClearTimetable = async () => {
+    if (
+      window.confirm(
+        'Clear all scheduled sessions from the timetable? Your faculty members, degree programs, courses, sections, and halls/rooms will NOT be deleted.'
+      )
+    ) {
+      setIsLoading(true);
+      await clearAllSchedules();
+      await loadData();
+    }
+  };
+
+  // Optional: Load sample demo timetable data
+  const handleLoadSampleDb = async () => {
+    if (window.confirm('Restore sample university demo curriculum, rooms, and schedule?')) {
+      setIsLoading(true);
+      await loadSampleUniversityData();
       await loadData();
     }
   };
@@ -228,6 +258,8 @@ export function App() {
         onLogout={handleLogout}
         onOpenNewSchedule={() => handleOpenNewSchedule()}
         onResetDb={handleResetDb}
+        onClearTimetable={handleClearTimetable}
+        onLoadSampleDb={handleLoadSampleDb}
         onRefreshData={loadData}
       />
 
@@ -249,6 +281,7 @@ export function App() {
             onEditSchedule={handleEditSchedule}
             onDeleteSchedule={handleDeleteSchedule}
             onAddNewSlot={handleOpenNewSchedule}
+            onClearTimetable={handleClearTimetable}
             onOpenPrint={() => setIsPrintModalOpen(true)}
           />
         </main>

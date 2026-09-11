@@ -91,7 +91,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
 
   // Sections Form State
   const [secYearId, setSecYearId] = useState<number>(years[0]?.id || 1);
-  const [secProgramId, setSecProgramId] = useState<number | ''>(programs[0]?.id || 1);
+  const [secProgramId, setSecProgramId] = useState<number | ''>(programs[0]?.id || '');
   const [secName, setSecName] = useState('');
   const [secCapacity, setSecCapacity] = useState(30);
 
@@ -585,29 +585,35 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
               </div>
 
               <div className="admin-page-list">
-                {filteredRooms.map((r) => (
-                  <div key={r.id} className="admin-entry-card">
-                    <div className="entry-details">
-                      <div className="entry-title-line">
-                        <span className="code-pill">{r.code}</span>
-                        <span className="entry-name">{r.name}</span>
-                      </div>
-                      <div className="entry-sub-line">
-                        <span className="type-tag">{r.type.replace('_', ' ')}</span>
-                        <span>• Capacity: {r.capacity} seats</span>
-                        <span>• {r.building} (Floor {r.floor})</span>
-                      </div>
-                    </div>
-                    <div className="entry-buttons">
-                      <button className="icon-btn" onClick={() => handleEditRoom(r)} title="Edit Room">
-                        <Edit2 size={15} />
-                      </button>
-                      <button className="icon-btn danger" onClick={() => handleDeleteRoom(r.id)} title="Delete Room">
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
+                {filteredRooms.length === 0 ? (
+                  <div className="admin-empty-state">
+                    <p>No rooms registered yet. Use the form to add lecture halls, labs, or classrooms.</p>
                   </div>
-                ))}
+                ) : (
+                  filteredRooms.map((r) => (
+                    <div key={r.id} className="admin-entry-card">
+                      <div className="entry-details">
+                        <div className="entry-title-line">
+                          <span className="code-pill">{r.code}</span>
+                          <span className="entry-name">{r.name}</span>
+                        </div>
+                        <div className="entry-sub-line">
+                          <span className="type-tag">{r.type.replace('_', ' ')}</span>
+                          <span>• Capacity: {r.capacity} seats</span>
+                          <span>• {r.building} (Floor {r.floor})</span>
+                        </div>
+                      </div>
+                      <div className="entry-buttons">
+                        <button className="icon-btn" onClick={() => handleEditRoom(r)} title="Edit Room">
+                          <Edit2 size={15} />
+                        </button>
+                        <button className="icon-btn danger" onClick={() => handleDeleteRoom(r.id)} title="Delete Room">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -732,29 +738,35 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
               </div>
 
               <div className="admin-page-list">
-                {filteredProfessors.map((p) => (
-                  <div key={p.id} className="admin-entry-card">
-                    <div className="entry-details">
-                      <div className="entry-title-line">
-                        <span className="title-pill">{p.title}</span>
-                        <span className="entry-name">{p.name}</span>
-                      </div>
-                      <div className="entry-sub-line">
-                        <span>{p.department}</span>
-                        <span>• {p.email}</span>
-                        {p.office && <span>• Office: {p.office}</span>}
-                      </div>
-                    </div>
-                    <div className="entry-buttons">
-                      <button className="icon-btn" onClick={() => handleEditProf(p)} title="Edit">
-                        <Edit2 size={15} />
-                      </button>
-                      <button className="icon-btn danger" onClick={() => handleDeleteProf(p.id)} title="Delete">
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
+                {filteredProfessors.length === 0 ? (
+                  <div className="admin-empty-state">
+                    <p>No faculty members registered yet. Use the form to add professors and teaching assistants.</p>
                   </div>
-                ))}
+                ) : (
+                  filteredProfessors.map((p) => (
+                    <div key={p.id} className="admin-entry-card">
+                      <div className="entry-details">
+                        <div className="entry-title-line">
+                          <span className="title-pill">{p.title}</span>
+                          <span className="entry-name">{p.name}</span>
+                        </div>
+                        <div className="entry-sub-line">
+                          <span>{p.department}</span>
+                          <span>• {p.email}</span>
+                          {p.office && <span>• Office: {p.office}</span>}
+                        </div>
+                      </div>
+                      <div className="entry-buttons">
+                        <button className="icon-btn" onClick={() => handleEditProf(p)} title="Edit">
+                          <Edit2 size={15} />
+                        </button>
+                        <button className="icon-btn danger" onClick={() => handleDeleteProf(p.id)} title="Delete">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -859,30 +871,36 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
               </div>
 
               <div className="admin-page-list">
-                {filteredCourses.map((c) => {
-                  const yr = years.find((y) => y.id === c.yearId);
-                  return (
-                    <div key={c.id} className="admin-entry-card">
-                      <div className="entry-details">
-                        <div className="entry-title-line">
-                          <span className="color-indicator" style={{ backgroundColor: c.colorHex }}></span>
-                          <span className="code-pill">{c.code}</span>
-                          <span className="entry-name">{c.name}</span>
+                {filteredCourses.length === 0 ? (
+                  <div className="admin-empty-state">
+                    <p>No courses registered yet. Use the form to add academic courses.</p>
+                  </div>
+                ) : (
+                  filteredCourses.map((c) => {
+                    const yr = years.find((y) => y.id === c.yearId);
+                    return (
+                      <div key={c.id} className="admin-entry-card">
+                        <div className="entry-details">
+                          <div className="entry-title-line">
+                            <span className="color-indicator" style={{ backgroundColor: c.colorHex }}></span>
+                            <span className="code-pill">{c.code}</span>
+                            <span className="entry-name">{c.name}</span>
+                          </div>
+                          <div className="entry-sub-line">
+                            <span>{yr?.name || 'All Years'}</span>
+                            <span>• {c.creditHours} Credits</span>
+                            <span>• {c.department}</span>
+                          </div>
                         </div>
-                        <div className="entry-sub-line">
-                          <span>{yr?.name || 'All Years'}</span>
-                          <span>• {c.creditHours} Credits</span>
-                          <span>• {c.department}</span>
+                        <div className="entry-buttons">
+                          <button className="icon-btn danger" onClick={() => handleDeleteCourse(c.id)} title="Delete Course">
+                            <Trash2 size={15} />
+                          </button>
                         </div>
                       </div>
-                      <div className="entry-buttons">
-                        <button className="icon-btn danger" onClick={() => handleDeleteCourse(c.id)} title="Delete Course">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>
@@ -948,28 +966,34 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
               </div>
 
               <div className="admin-page-list">
-                {filteredPrograms.map((p) => {
-                  const progSecs = sections.filter((s) => s.programId === p.id);
-                  return (
-                    <div key={p.id} className="admin-entry-card">
-                      <div className="entry-details">
-                        <div className="entry-title-line">
-                          <span className="code-pill highlight-pill">{p.code}</span>
-                          <span className="entry-name">{p.name}</span>
+                {filteredPrograms.length === 0 ? (
+                  <div className="admin-empty-state">
+                    <p>No degree programs registered yet. Use the form to add degree programs (e.g. CS, SE).</p>
+                  </div>
+                ) : (
+                  filteredPrograms.map((p) => {
+                    const progSecs = sections.filter((s) => s.programId === p.id);
+                    return (
+                      <div key={p.id} className="admin-entry-card">
+                        <div className="entry-details">
+                          <div className="entry-title-line">
+                            <span className="code-pill highlight-pill">{p.code}</span>
+                            <span className="entry-name">{p.name}</span>
+                          </div>
+                          <div className="entry-sub-line">
+                            <span>{p.department}</span>
+                            <span>• {progSecs.length} Active Section{progSecs.length === 1 ? '' : 's'}</span>
+                          </div>
                         </div>
-                        <div className="entry-sub-line">
-                          <span>{p.department}</span>
-                          <span>• {progSecs.length} Active Section{progSecs.length === 1 ? '' : 's'}</span>
+                        <div className="entry-buttons">
+                          <button className="icon-btn danger" onClick={() => handleDeleteProgram(p.id)} title="Delete Program">
+                            <Trash2 size={15} />
+                          </button>
                         </div>
                       </div>
-                      <div className="entry-buttons">
-                        <button className="icon-btn danger" onClick={() => handleDeleteProgram(p.id)} title="Delete Program">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>
@@ -1056,38 +1080,44 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
               </div>
 
               <div className="admin-page-list">
-                {filteredSections.map((s) => {
-                  const yr = years.find((y) => y.id === s.yearId);
-                  const prog = programs.find((p) => p.id === s.programId);
-                  return (
-                    <div key={s.id} className="admin-entry-card">
-                      <div className="entry-details">
-                        <div className="entry-title-line">
-                          {prog ? (
-                            <span className="code-pill highlight-pill" style={{ background: 'rgba(99, 102, 241, 0.18)', color: '#818cf8' }}>
-                              {prog.code}
-                            </span>
-                          ) : (
-                            <span className="code-pill" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
-                              General Prep
-                            </span>
-                          )}
-                          <span className="code-pill">{s.name}</span>
-                          <span className="entry-name">{yr?.name}</span>
+                {filteredSections.length === 0 ? (
+                  <div className="admin-empty-state">
+                    <p>No sections registered yet. Use the form to add student tutorial or lab sections.</p>
+                  </div>
+                ) : (
+                  filteredSections.map((s) => {
+                    const yr = years.find((y) => y.id === s.yearId);
+                    const prog = programs.find((p) => p.id === s.programId);
+                    return (
+                      <div key={s.id} className="admin-entry-card">
+                        <div className="entry-details">
+                          <div className="entry-title-line">
+                            {prog ? (
+                              <span className="code-pill highlight-pill" style={{ background: 'rgba(99, 102, 241, 0.18)', color: '#818cf8' }}>
+                                {prog.code}
+                              </span>
+                            ) : (
+                              <span className="code-pill" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
+                                General Prep
+                              </span>
+                            )}
+                            <span className="code-pill">{s.name}</span>
+                            <span className="entry-name">{yr?.name}</span>
+                          </div>
+                          <div className="entry-sub-line">
+                            <span>{prog ? prog.name : 'General Cohort'}</span>
+                            <span>• Max Capacity: {s.capacity} students</span>
+                          </div>
                         </div>
-                        <div className="entry-sub-line">
-                          <span>{prog ? prog.name : 'General Cohort'}</span>
-                          <span>• Max Capacity: {s.capacity} students</span>
+                        <div className="entry-buttons">
+                          <button className="icon-btn danger" onClick={() => handleDeleteSection(s.id)} title="Delete Section">
+                            <Trash2 size={15} />
+                          </button>
                         </div>
                       </div>
-                      <div className="entry-buttons">
-                        <button className="icon-btn danger" onClick={() => handleDeleteSection(s.id)} title="Delete Section">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>

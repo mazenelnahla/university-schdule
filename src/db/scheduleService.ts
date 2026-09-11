@@ -457,6 +457,13 @@ export async function deleteSchedule(id: number): Promise<boolean> {
   return true;
 }
 
+export async function clearAllSchedules(): Promise<boolean> {
+  const db = await getSqliteDb();
+  db.run('DELETE FROM schedules;');
+  await saveToIndexedDB(db);
+  return true;
+}
+
 // ---------------------- ENTITY CRUD ----------------------
 // PROFESSORS
 export async function addProfessor(prof: Omit<Professor, 'id'>): Promise<number> {

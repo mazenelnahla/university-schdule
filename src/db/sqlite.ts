@@ -198,7 +198,9 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 `;
 
-const SEED_DATA_SQL = `
+// Essential foundation required for the system to operate (Admin account, Academic Years, Standard Periods)
+// NO sample courses, NO sample sections, NO sample schedules, NO sample rooms, NO sample professors.
+const SYSTEM_BOOTSTRAP_SQL = `
 -- Default Admin: admin / admin123
 INSERT INTO admin_users (username, password_hash, display_name)
 VALUES ('admin', 'admin123', 'System Administrator');
@@ -211,14 +213,25 @@ INSERT INTO academic_years (id, code, name, semester) VALUES
 (4, 'YEAR_4', 'Year 4 - Senior', 'Fall Semester 2026'),
 (5, 'YEAR_PREP', 'Preparatory Year', 'Fall Semester 2026');
 
--- Academic Programs (Each program has its own sections & specialization)
+-- Standard Periods
+INSERT INTO standard_periods (period_number, start_time, end_time, label) VALUES
+(1, '08:30', '10:00', 'Period 1 (08:30 - 10:00)'),
+(2, '10:15', '11:45', 'Period 2 (10:15 - 11:45)'),
+(3, '12:00', '13:30', 'Period 3 (12:00 - 13:30)'),
+(4, '13:45', '15:15', 'Period 4 (13:45 - 15:15)'),
+(5, '15:30', '17:00', 'Period 5 (15:30 - 17:00)');
+`;
+
+// Optional demo/sample university dataset (can be loaded on demand)
+const SAMPLE_DATA_SQL = `
+-- Academic Programs
 INSERT INTO programs (id, code, name, department) VALUES
 (1, 'CS', 'Computer Science', 'Department of Computer Science'),
 (2, 'SE', 'Software Engineering', 'Department of Software Engineering'),
 (3, 'AI', 'Artificial Intelligence & Data Science', 'Department of Computer Science'),
 (4, 'CYBER', 'Cybersecurity & Computer Networks', 'Department of Networks');
 
--- Sections for Year 1 (Grouped by Program)
+-- Sections for Year 1
 INSERT INTO sections (year_id, program_id, name, capacity) VALUES
 (1, 1, 'CS Section 1 (Group A)', 35),
 (1, 1, 'CS Section 2 (Group B)', 35),
@@ -243,20 +256,12 @@ INSERT INTO sections (year_id, program_id, name, capacity) VALUES
 (4, 2, 'SE Section 1 (Enterprise Capstone)', 25),
 (4, 3, 'AI Section 1 (Deep Learning Capstone)', 25);
 
--- Sections for Preparatory Year (General Cohort - No specific program assigned)
+-- Sections for Preparatory Year (General Cohort)
 INSERT INTO sections (year_id, program_id, name, capacity) VALUES
 (5, NULL, 'Prep Section 1', 35),
 (5, NULL, 'Prep Section 2', 35),
 (5, NULL, 'Prep Section 3', 35),
 (5, NULL, 'Prep Section 4', 35);
-
--- Standard Periods
-INSERT INTO standard_periods (period_number, start_time, end_time, label) VALUES
-(1, '08:30', '10:00', 'Period 1 (08:30 - 10:00)'),
-(2, '10:15', '11:45', 'Period 2 (10:15 - 11:45)'),
-(3, '12:00', '13:30', 'Period 3 (12:00 - 13:30)'),
-(4, '13:45', '15:15', 'Period 4 (13:45 - 15:15)'),
-(5, '15:30', '17:00', 'Period 5 (15:30 - 17:00)');
 
 -- Professors & Teaching Assistants
 INSERT INTO professors (name, title, department, email, phone, office) VALUES
@@ -281,66 +286,37 @@ INSERT INTO rooms (code, name, type, capacity, building, floor) VALUES
 
 -- Courses
 INSERT INTO courses (code, name, credit_hours, department, year_id, color_hex) VALUES
--- Year 1 Courses
 ('CS101', 'Introduction to Programming & Logic', 3, 'Computer Science', 1, '#3b82f6'),
 ('MATH101', 'Calculus & Analytical Geometry', 3, 'Mathematics', 1, '#8b5cf6'),
 ('PHYS101', 'General Physics for Engineers', 3, 'Physics', 1, '#06b6d4'),
--- Year 2 Courses
 ('CS201', 'Data Structures & Algorithms', 3, 'Computer Science', 2, '#10b981'),
 ('CS202', 'Object-Oriented Programming (Java)', 3, 'Software Engineering', 2, '#f59e0b'),
 ('CS203', 'Computer Architecture & Assembly', 3, 'Computer Science', 2, '#ef4444'),
--- Year 3 Courses
 ('CS301', 'Database Systems & SQL Design', 3, 'Computer Science', 3, '#ec4899'),
 ('CS302', 'Operating Systems & Concurrency', 3, 'Computer Science', 3, '#6366f1'),
 ('CS303', 'Computer Networks & Protocols', 3, 'Networks', 3, '#14b8a6'),
--- Year 4 Courses
 ('CS401', 'Artificial Intelligence & ML', 3, 'Computer Science', 4, '#84cc16'),
 ('CS499', 'Senior Capstone Graduation Project', 4, 'Software Engineering', 4, '#a855f7'),
--- Preparatory Year Courses (General Engineering & Basic Sciences)
 ('MATH001', 'Engineering Mathematics I (Calculus & Algebra)', 3, 'Basic Sciences', 5, '#3b82f6'),
 ('PHYS001', 'Engineering Physics (Mechanics & Waves)', 3, 'Basic Sciences', 5, '#06b6d4'),
 ('ENG001', 'Engineering Graphics & Descriptive Geometry', 3, 'General Engineering', 5, '#f59e0b'),
 ('CHEM001', 'General Chemistry for Engineers', 3, 'Basic Sciences', 5, '#10b981');
 
--- Initial schedules:
--- Sunday (day 0)
--- Year 1: CS101 Lecture in HALL-A, Period 1 (08:30-10:00) with Dr. Turing
+-- Schedules
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
 VALUES (1, NULL, 1, 1, 1, 0, 1, '08:30', '10:00', 'LECTURE', 'Mandatory attendance for all Year 1');
 
--- Sunday: Year 1 CS101 Section 1 Lab in LAB-101, Period 2 (10:15-11:45) with Eng. Patterson
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
 VALUES (1, 1, 1, 5, 4, 0, 2, '10:15', '11:45', 'SECTION', 'CS Section 1: Practical coding exercises in C++');
 
--- Sunday: Year 1 SE Section 1 Lab in LAB-102, Period 2 (10:15-11:45) with Eng. Margaret Hamilton
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
 VALUES (1, 3, 1, 6, 5, 0, 2, '10:15', '11:45', 'SECTION', 'SE Section 1: Software Design & Testing Lab');
 
--- Sunday: Year 1 AI Section 1 Lab in LAB-201, Period 2 (10:15-11:45) with Eng. Linus Torvalds
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (1, 4, 1, 7, 6, 0, 2, '10:15', '11:45', 'SECTION', 'AI Section 1: Data Analysis & Python Lab');
-
--- Sunday: Year 2: CS201 Lecture in HALL-B, Period 1 (08:30-10:00) with Dr. Knuth
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
 VALUES (2, NULL, 4, 3, 2, 0, 1, '08:30', '10:00', 'LECTURE', 'Algorithm complexity analysis');
 
--- Monday (day 1)
--- Year 2: CS202 Lecture in HALL-A, Period 2 (10:15-11:45) with Dr. Grace Hopper
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
 VALUES (2, NULL, 5, 2, 1, 1, 2, '10:15', '11:45', 'LECTURE', 'OOP Principles and Design Patterns');
-
--- Monday: Year 3 CS301 Lecture in HALL-B, Period 3 (12:00-13:30) with Dr. Barbara Liskov
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (3, NULL, 7, 4, 2, 1, 3, '12:00', '13:30', 'LECTURE', 'Relational Algebra & Normalization');
-
--- Tuesday (day 2)
--- Year 3 CS302 Operating Systems Lecture in HALL-A, Period 1 (08:30-10:00) with Dr. Liskov
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (3, NULL, 8, 4, 1, 2, 1, '08:30', '10:00', 'LECTURE', 'Processes and Threads');
-
--- Tuesday: Year 4 CS401 AI Lecture in HALL-C, Period 2 (10:15-11:45) with Dr. Turing
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (4, NULL, 10, 1, 3, 2, 2, '10:15', '11:45', 'LECTURE', 'Heuristic Search & Neural Nets');
 `;
 
 function migrateExistingDatabase(db: Database) {
@@ -362,103 +338,17 @@ function migrateExistingDatabase(db: Database) {
       db.run('ALTER TABLE sections ADD COLUMN program_id INTEGER REFERENCES programs(id) ON DELETE SET NULL;');
     }
 
-    // 3. Seed programs if table is empty
-    const progCheck = db.exec('SELECT COUNT(*) FROM programs;');
-    const count = Number(progCheck[0]?.values[0]?.[0] || 0);
-    if (count === 0) {
-      db.run(`
-        INSERT INTO programs (id, code, name, department) VALUES
-        (1, 'CS', 'Computer Science', 'Department of Computer Science'),
-        (2, 'SE', 'Software Engineering', 'Department of Software Engineering'),
-        (3, 'AI', 'Artificial Intelligence & Data Science', 'Department of Computer Science'),
-        (4, 'CYBER', 'Cybersecurity & Computer Networks', 'Department of Networks');
-      `);
-    }
-
-    // 4. Update any sections where program_id is null to sensible default (EXCEPT prep year)
+    // 3. Ensure YEAR_PREP academic year level exists
     const prepCheck = db.exec("SELECT id FROM academic_years WHERE code = 'YEAR_PREP' OR name LIKE '%Prep%';");
-    let prepYearId: number;
     if (!prepCheck || prepCheck.length === 0 || !prepCheck[0].values.length) {
       db.run(`
         INSERT INTO academic_years (code, name, semester) VALUES
         ('YEAR_PREP', 'Preparatory Year', 'Fall Semester 2026');
       `);
-      const getPrep = db.exec("SELECT id FROM academic_years WHERE code = 'YEAR_PREP';");
-      prepYearId = Number(getPrep[0].values[0][0]);
-    } else {
-      prepYearId = Number(prepCheck[0].values[0][0]);
     }
 
-    db.run(`
-      UPDATE sections SET program_id = 1 WHERE program_id IS NULL AND year_id != ${prepYearId} AND (name LIKE '%CS%' OR name LIKE '%Group A%' OR name LIKE '%Group B%');
-      UPDATE sections SET program_id = 2 WHERE program_id IS NULL AND year_id != ${prepYearId} AND (name LIKE '%SE%' OR name LIKE '%Software%');
-      UPDATE sections SET program_id = 3 WHERE program_id IS NULL AND year_id != ${prepYearId} AND (name LIKE '%AI%' OR name LIKE '%Data%');
-      UPDATE sections SET program_id = 4 WHERE program_id IS NULL AND year_id != ${prepYearId} AND (name LIKE '%CYBER%' OR name LIKE '%Cyber%' OR name LIKE '%Network%');
-      UPDATE sections SET program_id = 1 WHERE program_id IS NULL AND year_id != ${prepYearId};
-    `);
-
-    // 5. Ensure Preparatory Year has general sections with program_id = NULL
-    const prepSecCheck = db.exec(`SELECT COUNT(*) FROM sections WHERE year_id = ${prepYearId};`);
-    const prepSecCount = Number(prepSecCheck[0]?.values[0]?.[0] || 0);
-    if (prepSecCount === 0) {
-      db.run(`
-        INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-        (${prepYearId}, NULL, 'Prep Section 1', 35),
-        (${prepYearId}, NULL, 'Prep Section 2', 35),
-        (${prepYearId}, NULL, 'Prep Section 3', 35),
-        (${prepYearId}, NULL, 'Prep Section 4', 35);
-      `);
-    } else {
-      db.run(`UPDATE sections SET program_id = NULL WHERE year_id = ${prepYearId};`);
-    }
-
-    // 6. Ensure Preparatory Year has general courses
-    const prepCourseCheck = db.exec(`SELECT COUNT(*) FROM courses WHERE year_id = ${prepYearId};`);
-    const prepCourseCount = Number(prepCourseCheck[0]?.values[0]?.[0] || 0);
-    if (prepCourseCount === 0) {
-      db.run(`
-        INSERT INTO courses (code, name, credit_hours, department, year_id, color_hex) VALUES
-        ('MATH001', 'Engineering Mathematics I (Calculus & Algebra)', 3, 'Basic Sciences', ${prepYearId}, '#3b82f6'),
-        ('PHYS001', 'Engineering Physics (Mechanics & Waves)', 3, 'Basic Sciences', ${prepYearId}, '#06b6d4'),
-        ('ENG001', 'Engineering Graphics & Descriptive Geometry', 3, 'General Engineering', ${prepYearId}, '#f59e0b'),
-        ('CHEM001', 'General Chemistry for Engineers', 3, 'Basic Sciences', ${prepYearId}, '#10b981');
-      `);
-    }
-
-    // 7. Ensure Preparatory Year has sample schedules
-    const prepSchedCheck = db.exec(`SELECT COUNT(*) FROM schedules WHERE academic_year_id = ${prepYearId};`);
-    const prepSchedCount = Number(prepSchedCheck[0]?.values[0]?.[0] || 0);
-    if (prepSchedCount === 0) {
-      const cRes = db.exec(`SELECT id, code FROM courses WHERE year_id = ${prepYearId};`);
-      const cMap: Record<string, number> = {};
-      if (cRes && cRes[0]) {
-        cRes[0].values.forEach((v) => { cMap[String(v[1])] = Number(v[0]); });
-      }
-      const sRes = db.exec(`SELECT id, name FROM sections WHERE year_id = ${prepYearId} ORDER BY id ASC;`);
-      const sList: number[] = [];
-      if (sRes && sRes[0]) {
-        sRes[0].values.forEach((v) => { sList.push(Number(v[0])); });
-      }
-
-      if (cMap['MATH001']) {
-        db.run(`
-          INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-          VALUES (${prepYearId}, NULL, ${cMap['MATH001']}, 1, 1, 0, 1, '08:30', '10:00', 'LECTURE', 'Preparatory Year General Cohort');
-        `);
-      }
-      if (cMap['PHYS001'] && sList[0]) {
-        db.run(`
-          INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-          VALUES (${prepYearId}, ${sList[0]}, ${cMap['PHYS001']}, 5, 7, 0, 2, '10:15', '11:45', 'SECTION', 'Prep Section 1 Physics Tutorial');
-        `);
-      }
-      if (cMap['ENG001'] && sList[1]) {
-        db.run(`
-          INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-          VALUES (${prepYearId}, ${sList[1]}, ${cMap['ENG001']}, 6, 8, 0, 2, '10:15', '11:45', 'SECTION', 'Prep Section 2 Graphics Tutorial');
-        `);
-      }
-    }
+    // Note: No automatic insertion of sample courses, sections, or schedules is done here,
+    // ensuring the database stays completely empty if reset by the user.
   } catch (err) {
     console.warn('Database migration note:', err);
   }
@@ -477,7 +367,7 @@ export async function getSqliteDb(): Promise<Database> {
         const loadedDb = new SQL.Database(savedBinary) as Database;
         migrateExistingDatabase(loadedDb);
         dbInstance = loadedDb;
-        console.log('Loaded existing SQLite database from IndexedDB and migrated.');
+        console.log('Loaded existing SQLite database from IndexedDB.');
         await saveToIndexedDB(loadedDb);
         return loadedDb;
       } catch (e) {
@@ -485,11 +375,11 @@ export async function getSqliteDb(): Promise<Database> {
       }
     }
 
-    // Initialize fresh DB with schema and seed data
-    console.log('Initializing fresh SQLite database with university schema and seed data...');
+    // Initialize fresh DB with empty schema and bootstrap structure (no sample data)
+    console.log('Initializing fresh SQLite database with clean schema (empty, no sample data)...');
     const freshDb = new SQL.Database() as Database;
     freshDb.run(SCHEMA_SQL);
-    freshDb.run(SEED_DATA_SQL);
+    freshDb.run(SYSTEM_BOOTSTRAP_SQL);
     dbInstance = freshDb;
     await saveToIndexedDB(freshDb);
 
@@ -499,15 +389,56 @@ export async function getSqliteDb(): Promise<Database> {
   return initPromise;
 }
 
-export async function resetDatabaseToDefault(): Promise<Database> {
+/**
+ * Resets and completely empties the database:
+ * Deletes all schedules, courses, sections, rooms, professors, and programs.
+ * Retains system essentials (admin login, academic year levels, standard periods).
+ */
+export async function resetDatabaseToEmpty(): Promise<Database> {
   const SQL = await getSqlJsStatic();
 
-  const resetDb = new SQL.Database() as Database;
-  resetDb.run(SCHEMA_SQL);
-  resetDb.run(SEED_DATA_SQL);
-  dbInstance = resetDb;
-  await saveToIndexedDB(resetDb);
-  return resetDb;
+  const emptyDb = new SQL.Database() as Database;
+  emptyDb.run(SCHEMA_SQL);
+  emptyDb.run(SYSTEM_BOOTSTRAP_SQL);
+  dbInstance = emptyDb;
+  await saveToIndexedDB(emptyDb);
+  console.log('Database reset to empty state (sample data removed).');
+  return emptyDb;
+}
+
+/**
+ * Reset action: alias to resetDatabaseToEmpty() to ensure sample data is never restored by default.
+ */
+export async function resetDatabaseToDefault(): Promise<Database> {
+  return resetDatabaseToEmpty();
+}
+
+/**
+ * Clears ONLY the scheduled timetable sessions.
+ * Preserves faculty members, degree programs, courses, sections, halls/rooms, and admin credentials.
+ */
+export async function clearTimetableOnly(): Promise<Database> {
+  const db = await getSqliteDb();
+  db.run('DELETE FROM schedules;');
+  await saveToIndexedDB(db);
+  console.log('Cleared timetable sessions only (preserved faculty, rooms, courses & programs).');
+  return db;
+}
+
+/**
+ * Populates sample demo university data (courses, sections, rooms, professors, and schedules)
+ */
+export async function loadSampleUniversityData(): Promise<Database> {
+  const SQL = await getSqlJsStatic();
+
+  const sampleDb = new SQL.Database() as Database;
+  sampleDb.run(SCHEMA_SQL);
+  sampleDb.run(SYSTEM_BOOTSTRAP_SQL);
+  sampleDb.run(SAMPLE_DATA_SQL);
+  dbInstance = sampleDb;
+  await saveToIndexedDB(sampleDb);
+  console.log('Sample university dataset loaded successfully.');
+  return sampleDb;
 }
 
 export async function exportDatabaseFile(): Promise<void> {

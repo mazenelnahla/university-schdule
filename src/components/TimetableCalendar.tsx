@@ -10,6 +10,7 @@ import {
   Users,
   Search,
   Printer,
+  CalendarX,
   GraduationCap,
 } from 'lucide-react';
 import type {
@@ -51,6 +52,7 @@ interface TimetableCalendarProps {
   onDeleteSchedule: (id: number) => void;
   onAddNewSlot: (dayOfWeek: number, periodId?: number, extra?: { roomId?: number; yearId?: number; sectionId?: number }) => void;
   onOpenPrint?: () => void;
+  onClearTimetable?: () => void;
 }
 
 export const TimetableCalendar: FC<TimetableCalendarProps> = ({
@@ -69,6 +71,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
   onDeleteSchedule,
   onAddNewSlot,
   onOpenPrint,
+  onClearTimetable,
 }) => {
   const [selectedDay, setSelectedDay] = useState<number>(0); // 0 = Sunday
   const [isFullWeekView, setIsFullWeekView] = useState<boolean>(false);
@@ -206,6 +209,18 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
             >
               <Printer size={15} />
               <span>Print Timetable</span>
+            </button>
+          )}
+
+          {/* Clear Timetable Trigger Button */}
+          {onClearTimetable && adminUser && schedules.length > 0 && (
+            <button
+              onClick={onClearTimetable}
+              className="action-btn secondary-btn clear-timetable-btn"
+              title="Clear all scheduled classes (keeps faculty, rooms, courses & programs)"
+            >
+              <CalendarX size={15} className="text-amber-400" />
+              <span>Clear Timetable</span>
             </button>
           )}
         </div>
@@ -627,103 +642,119 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
 
                 {/* 2. VIEW MODE: ROOM */}
                 {viewMode === 'ROOM' &&
-                  rooms.map((room) => (
-                    <tr key={room.id} className="grid-row">
-                      <td className="td-entity-header">
-                        <div className="entity-title font-bold flex-center-gap">
-                          <Building size={16} className="text-sky" />
-                          <span>{room.code}</span>
-                        </div>
-                        <div className="entity-subtitle">
-                          {room.name} • {room.building} (Cap: {room.capacity})
-                        </div>
+                  (rooms.length === 0 ? (
+                    <tr className="grid-row">
+                      <td colSpan={1 + standardPeriods.length} className="td-empty-table-notice">
+                        No rooms registered yet. Navigate to Admin Hub to register lecture halls and computer labs.
                       </td>
-                      {standardPeriods.map((p) => {
-                        const items = filteredSchedules.filter(
-                          (s) =>
-                            s.dayOfWeek === selectedDay &&
-                            s.roomId === room.id &&
-                            timesOverlap(s.startTime, s.endTime, p.startTime, p.endTime)
-                        );
-                        return (
-                          <td key={p.id} className="td-slot">
-                            <div className="slot-container">
-                              {items.map((item) => (
-                                <ScheduleCard
-                                  key={item.id}
-                                  schedule={item}
-                                  adminUser={adminUser}
-                                  onEdit={() => onEditSchedule(item)}
-                                  onDelete={() => onDeleteSchedule(item.id)}
-                                />
-                              ))}
-                              {items.length === 0 && adminUser && (
-                                <button
-                                  className="add-slot-btn"
-                                  onClick={() =>
-                                    onAddNewSlot(selectedDay, p.id, { roomId: room.id })
-                                  }
-                                >
-                                  <Plus size={14} />
-                                  <span>Book {room.code}</span>
-                                </button>
-                              )}
-                              {items.length === 0 && !adminUser && (
-                                <div className="empty-slot-label free-room">Free Room</div>
-                              )}
-                            </div>
-                          </td>
-                        );
-                      })}
                     </tr>
+                  ) : (
+                    rooms.map((room) => (
+                      <tr key={room.id} className="grid-row">
+                        <td className="td-entity-header">
+                          <div className="entity-title font-bold flex-center-gap">
+                            <Building size={16} className="text-sky" />
+                            <span>{room.code}</span>
+                          </div>
+                          <div className="entity-subtitle">
+                            {room.name} • {room.building} (Cap: {room.capacity})
+                          </div>
+                        </td>
+                        {standardPeriods.map((p) => {
+                          const items = filteredSchedules.filter(
+                            (s) =>
+                              s.dayOfWeek === selectedDay &&
+                              s.roomId === room.id &&
+                              timesOverlap(s.startTime, s.endTime, p.startTime, p.endTime)
+                          );
+                          return (
+                            <td key={p.id} className="td-slot">
+                              <div className="slot-container">
+                                {items.map((item) => (
+                                  <ScheduleCard
+                                    key={item.id}
+                                    schedule={item}
+                                    adminUser={adminUser}
+                                    onEdit={() => onEditSchedule(item)}
+                                    onDelete={() => onDeleteSchedule(item.id)}
+                                  />
+                                ))}
+                                {items.length === 0 && adminUser && (
+                                  <button
+                                    className="add-slot-btn"
+                                    onClick={() =>
+                                      onAddNewSlot(selectedDay, p.id, { roomId: room.id })
+                                    }
+                                  >
+                                    <Plus size={14} />
+                                    <span>Assign</span>
+                                  </button>
+                                )}
+                                {items.length === 0 && !adminUser && (
+                                  <div className="empty-slot-label free-room">Free Room</div>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
                   ))}
 
                 {/* 3. VIEW MODE: PROFESSOR */}
                 {viewMode === 'PROFESSOR' &&
-                  professors.map((prof) => (
-                    <tr key={prof.id} className="grid-row">
-                      <td className="td-entity-header">
-                        <div className="entity-title font-bold flex-center-gap">
-                          <User size={16} className="text-indigo" />
-                          <span>{prof.title} {prof.name}</span>
-                        </div>
-                        <div className="entity-subtitle">
-                          {prof.department} • {prof.office || 'Campus'}
-                        </div>
+                  (professors.length === 0 ? (
+                    <tr className="grid-row">
+                      <td colSpan={1 + standardPeriods.length} className="td-empty-table-notice">
+                        No faculty members registered yet. Navigate to Admin Hub to register professors and teaching assistants.
                       </td>
-                      {standardPeriods.map((p) => {
-                        const items = filteredSchedules.filter(
-                          (s) =>
-                            s.dayOfWeek === selectedDay &&
-                            s.professorId === prof.id &&
-                            timesOverlap(s.startTime, s.endTime, p.startTime, p.endTime)
-                        );
-                        return (
-                          <td key={p.id} className="td-slot">
-                            <div className="slot-container">
-                              {items.map((item) => (
-                                <ScheduleCard
-                                  key={item.id}
-                                  schedule={item}
-                                  adminUser={adminUser}
-                                  onEdit={() => onEditSchedule(item)}
-                                  onDelete={() => onDeleteSchedule(item.id)}
-                                />
-                              ))}
-                              {items.length === 0 && adminUser && (
-                                <button
-                                  className="add-slot-btn"
-                                  onClick={() => onAddNewSlot(selectedDay, p.id)}
-                                >
-                                  <Plus size={14} />
-                                  <span>Assign</span>
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        );
-                      })}
                     </tr>
+                  ) : (
+                    professors.map((prof) => (
+                      <tr key={prof.id} className="grid-row">
+                        <td className="td-entity-header">
+                          <div className="entity-title font-bold flex-center-gap">
+                            <User size={16} className="text-indigo" />
+                            <span>{prof.title} {prof.name}</span>
+                          </div>
+                          <div className="entity-subtitle">
+                            {prof.department} • {prof.office || 'Campus'}
+                          </div>
+                        </td>
+                        {standardPeriods.map((p) => {
+                          const items = filteredSchedules.filter(
+                            (s) =>
+                              s.dayOfWeek === selectedDay &&
+                              s.professorId === prof.id &&
+                              timesOverlap(s.startTime, s.endTime, p.startTime, p.endTime)
+                          );
+                          return (
+                            <td key={p.id} className="td-slot">
+                              <div className="slot-container">
+                                {items.map((item) => (
+                                  <ScheduleCard
+                                    key={item.id}
+                                    schedule={item}
+                                    adminUser={adminUser}
+                                    onEdit={() => onEditSchedule(item)}
+                                    onDelete={() => onDeleteSchedule(item.id)}
+                                  />
+                                ))}
+                                {items.length === 0 && adminUser && (
+                                  <button
+                                    className="add-slot-btn"
+                                    onClick={() => onAddNewSlot(selectedDay, p.id)}
+                                  >
+                                    <Plus size={14} />
+                                    <span>Assign</span>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
                   ))}
               </tbody>
             </table>

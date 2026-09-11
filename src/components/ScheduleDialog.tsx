@@ -207,6 +207,20 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
     }
   }, [availableCourses, courseId]);
 
+  // Auto-select first available professor if current is invalid
+  useEffect(() => {
+    if (professors.length > 0 && !professors.some((p) => p.id === professorId)) {
+      setProfessorId(professors[0].id);
+    }
+  }, [professors, professorId]);
+
+  // Auto-select first available room if current is invalid
+  useEffect(() => {
+    if (rooms.length > 0 && !rooms.some((r) => r.id === roomId)) {
+      setRoomId(rooms[0].id);
+    }
+  }, [rooms, roomId]);
+
   // Live Conflict Detection whenever room, time, day, prof, or year changes
   useEffect(() => {
     if (!isOpen || !roomId || !startTime || !endTime) return;
@@ -263,6 +277,11 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+
+    if (!courses.length || !professors.length || !rooms.length) {
+      setErrorMessage('Please register courses, professors, and rooms in the Admin Hub before scheduling.');
+      return;
+    }
 
     if (conflictResult.hasConflict) {
       setErrorMessage(conflictResult.message || 'Cannot schedule due to room conflict!');
@@ -357,14 +376,32 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
           </div>
         )}
 
-        {!conflictResult.hasConflict && !isCheckingConflict && (
+        {(!courses.length || !professors.length || !rooms.length) ? (
+          <div className="alert-banner alert-danger">
+            <AlertTriangle size={18} className="shrink-0" />
+            <div>
+              <div className="font-semibold">Setup Required in Admin Hub</div>
+              <div className="text-xs mt-0.5">
+                The database is empty. Please register at least one{' '}
+                {[
+                  !courses.length && 'Course',
+                  !professors.length && 'Professor / TA',
+                  !rooms.length && 'Room / Hall',
+                ]
+                  .filter(Boolean)
+                  .join(', ')}{' '}
+                in the Admin Hub before scheduling sessions.
+              </div>
+            </div>
+          </div>
+        ) : !conflictResult.hasConflict && !isCheckingConflict ? (
           <div className="alert-banner alert-success">
             <CheckCircle size={18} className="shrink-0" />
             <span className="text-sm font-medium">
               Room {selectedRoom?.code || ''} and time slot are fully available!
             </span>
           </div>
-        )}
+        ) : null}
 
         {errorMessage && (
           <div className="alert-banner alert-danger">
@@ -723,7 +760,13 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
             <button
               type="submit"
               className="action-btn primary-btn highlight-glow"
-              disabled={conflictResult.hasConflict || isSubmitting}
+              disabled={
+                conflictResult.hasConflict ||
+                isSubmitting ||
+                !courses.length ||
+                !professors.length ||
+                !rooms.length
+              }
             >
               {isSubmitting
                 ? 'Saving...'
