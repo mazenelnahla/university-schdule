@@ -91,7 +91,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
 
   // Sections Form State
   const [secYearId, setSecYearId] = useState<number>(years[0]?.id || 1);
-  const [secProgramId, setSecProgramId] = useState<number>(programs[0]?.id || 1);
+  const [secProgramId, setSecProgramId] = useState<number | ''>(programs[0]?.id || 1);
   const [secName, setSecName] = useState('');
   const [secCapacity, setSecCapacity] = useState(30);
 
@@ -316,7 +316,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     try {
       await addSection({
         yearId: Number(secYearId),
-        programId: Number(secProgramId),
+        programId: secProgramId ? Number(secProgramId) : null,
         name: secName.trim(),
         capacity: Number(secCapacity),
       });
@@ -1003,12 +1003,13 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Degree Program (Program Specific Section) *</label>
+                  <label className="form-label">Degree Program (Program Specific Section)</label>
                   <select
                     className="form-select"
                     value={secProgramId}
-                    onChange={(e) => setSecProgramId(Number(e.target.value))}
+                    onChange={(e) => setSecProgramId(e.target.value ? Number(e.target.value) : '')}
                   >
+                    <option value="">None / General Cohort (Prep Year)</option>
                     {programs.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.code} - {p.name}
@@ -1062,9 +1063,13 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                     <div key={s.id} className="admin-entry-card">
                       <div className="entry-details">
                         <div className="entry-title-line">
-                          {prog && (
+                          {prog ? (
                             <span className="code-pill highlight-pill" style={{ background: 'rgba(99, 102, 241, 0.18)', color: '#818cf8' }}>
                               {prog.code}
+                            </span>
+                          ) : (
+                            <span className="code-pill" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
+                              General Prep
                             </span>
                           )}
                           <span className="code-pill">{s.name}</span>

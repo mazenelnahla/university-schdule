@@ -68,7 +68,18 @@ export async function authenticateAdmin(username: string, password: string): Pro
 // ---------------------- GETTERS ----------------------
 export async function getAcademicYears(): Promise<AcademicYear[]> {
   const db = await getSqliteDb();
-  const res = db.exec('SELECT id, code, name, semester FROM academic_years ORDER BY id ASC');
+  const res = db.exec(`
+    SELECT id, code, name, semester FROM academic_years 
+    ORDER BY 
+      CASE 
+        WHEN code = 'YEAR_PREP' OR name LIKE '%Prep%' THEN 0 
+        WHEN code = 'YEAR_1' OR name LIKE '%Year 1%' OR name LIKE '%Freshman%' THEN 1
+        WHEN code = 'YEAR_2' OR name LIKE '%Year 2%' OR name LIKE '%Sophomore%' THEN 2
+        WHEN code = 'YEAR_3' OR name LIKE '%Year 3%' OR name LIKE '%Junior%' THEN 3
+        WHEN code = 'YEAR_4' OR name LIKE '%Year 4%' OR name LIKE '%Senior%' THEN 4
+        ELSE id + 10 
+      END ASC
+  `);
   return rowsToObjects<AcademicYear>(res);
 }
 

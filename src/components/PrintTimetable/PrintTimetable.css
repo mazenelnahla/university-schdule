@@ -297,6 +297,7 @@
   flex-direction: column;
   font-family: var(--font-sans);
   box-sizing: border-box;
+  min-height: 650px;
 }
 
 /* Official University Header */
@@ -664,9 +665,10 @@
   color: #0f172a;
   font-size: 0.68rem;
   margin-bottom: 1.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-height: 1.15;
 }
 
 .card-details-line {
@@ -748,8 +750,8 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
-  margin-top: 0.35rem;
-  padding-top: 0.35rem;
+  margin-top: auto;
+  padding-top: 0.5rem;
   border-top: 1px dashed #cbd5e1;
 }
 
@@ -849,6 +851,9 @@
 
 .density-compact .card-title {
   font-size: 0.625rem;
+  line-height: 1.1;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .density-compact .card-details-line {
@@ -871,8 +876,8 @@
 }
 
 .density-compact .print-signatures-footer {
-  margin-top: 0.2rem;
-  padding-top: 0.2rem;
+  margin-top: auto;
+  padding-top: 0.25rem;
   gap: 1rem;
 }
 
@@ -979,10 +984,36 @@
     margin: 0 !important;
     max-width: 100% !important;
     width: 100% !important;
-    display: block !important;
+    display: flex !important;
+    flex-direction: column !important;
     box-sizing: border-box !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    min-height: calc(100vh - 2mm) !important;
+    position: relative !important;
+  }
+
+  .print-signatures-footer {
+    margin-top: auto !important;
+    padding-top: 0.35rem !important;
+    padding-bottom: 1mm !important;
+    border-top: 1px dashed #cbd5e1 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .density-compact .print-signatures-footer {
+    margin-top: auto !important;
+    padding-top: 0.2rem !important;
+    padding-bottom: 1mm !important;
+  }
+
+  .sig-line {
+    background: #000000 !important;
+  }
+
+  .sig-name {
+    color: #334155 !important;
   }
 
   /* Multi-page break for program sheets */
@@ -1031,10 +1062,30 @@
 
   .day-name-bold,
   .univ-title,
-  .card-title,
   .card-code-tag,
   .sig-role {
     color: #000000 !important;
+  }
+
+  .card-title {
+    color: #000000 !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+    line-height: 1.15 !important;
+  }
+
+  .card-faculty-inline {
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+  }
+
+  .print-session-card {
+    overflow: visible !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   .lecture-card {

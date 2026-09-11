@@ -244,31 +244,45 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
       </div>
 
       {/* Program Selection Strip when in YEAR or PROGRAM view */}
-      {(viewMode === 'YEAR' || viewMode === 'PROGRAM') && programs && programs.length > 0 && (
-        <div className="program-selection-strip">
-          <div className="program-strip-label">
-            <GraduationCap size={16} className="text-primary" />
-            <span className="font-semibold text-xs text-secondary">Program View:</span>
-          </div>
-          <div className="program-pills-row">
-            <button
-              className={`program-filter-pill ${selectedProgramFilter === 'ALL' ? 'active' : ''}`}
-              onClick={() => setSelectedProgramFilter('ALL')}
-            >
-              All Programs ({programs.length})
-            </button>
-            {programs.map((p) => (
+      {(viewMode === 'YEAR' || viewMode === 'PROGRAM') && (
+        activeSections.some((s) => s.programId !== null) || selectedYearId === 'ALL' ? (
+          <div className="program-selection-strip">
+            <div className="program-strip-label">
+              <GraduationCap size={16} className="text-primary" />
+              <span className="font-semibold text-xs text-secondary">Program View:</span>
+            </div>
+            <div className="program-pills-row">
               <button
-                key={p.id}
-                className={`program-filter-pill ${selectedProgramFilter === p.id ? 'active' : ''}`}
-                onClick={() => setSelectedProgramFilter(p.id)}
+                className={`program-filter-pill ${selectedProgramFilter === 'ALL' ? 'active' : ''}`}
+                onClick={() => setSelectedProgramFilter('ALL')}
               >
-                <span className="prog-pill-code">{p.code}</span>
-                <span>{p.name}</span>
+                All Programs ({programs.length})
               </button>
-            ))}
+              {programs
+                .filter((p) => selectedYearId === 'ALL' || activeSections.some((s) => s.programId === p.id))
+                .map((p) => (
+                  <button
+                    key={p.id}
+                    className={`program-filter-pill ${selectedProgramFilter === p.id ? 'active' : ''}`}
+                    onClick={() => setSelectedProgramFilter(p.id)}
+                  >
+                    <span className="prog-pill-code">{p.code}</span>
+                    <span>{p.name}</span>
+                  </button>
+                ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="program-selection-strip">
+            <div className="program-strip-label">
+              <GraduationCap size={16} className="text-primary" />
+              <span className="font-semibold text-xs text-secondary">General Cohort:</span>
+            </div>
+            <div className="text-xs text-secondary font-medium">
+              Common Preparatory Year • No specific program tracks assigned
+            </div>
+          </div>
+        )
       )}
 
       {/* Main Timetable View */}
@@ -431,7 +445,6 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                                     <span className="program-divider-title">{prog.name} ({prog.code})</span>
                                     <span className="program-divider-dept">• {prog.department}</span>
                                     <span className="program-sec-count">
-                                      {selectedProgramFilter !== 'ALL' ? 'Showing Program Independently • ' : ''}
                                       {progSections.length} Program Section{progSections.length === 1 ? '' : 's'}
                                     </span>
                                   </div>

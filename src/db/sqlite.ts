@@ -204,11 +204,12 @@ INSERT INTO admin_users (username, password_hash, display_name)
 VALUES ('admin', 'admin123', 'System Administrator');
 
 -- Academic Years
-INSERT INTO academic_years (code, name, semester) VALUES
-('YEAR_1', 'Year 1 - Freshman', 'Fall Semester 2026'),
-('YEAR_2', 'Year 2 - Sophomore', 'Fall Semester 2026'),
-('YEAR_3', 'Year 3 - Junior', 'Fall Semester 2026'),
-('YEAR_4', 'Year 4 - Senior', 'Fall Semester 2026');
+INSERT INTO academic_years (id, code, name, semester) VALUES
+(1, 'YEAR_1', 'Year 1 - Freshman', 'Fall Semester 2026'),
+(2, 'YEAR_2', 'Year 2 - Sophomore', 'Fall Semester 2026'),
+(3, 'YEAR_3', 'Year 3 - Junior', 'Fall Semester 2026'),
+(4, 'YEAR_4', 'Year 4 - Senior', 'Fall Semester 2026'),
+(5, 'YEAR_PREP', 'Preparatory Year', 'Fall Semester 2026');
 
 -- Academic Programs (Each program has its own sections & specialization)
 INSERT INTO programs (id, code, name, department) VALUES
@@ -241,6 +242,13 @@ INSERT INTO sections (year_id, program_id, name, capacity) VALUES
 (4, 1, 'CS Section 1 (Graduation Projects)', 25),
 (4, 2, 'SE Section 1 (Enterprise Capstone)', 25),
 (4, 3, 'AI Section 1 (Deep Learning Capstone)', 25);
+
+-- Sections for Preparatory Year (General Cohort - No specific program assigned)
+INSERT INTO sections (year_id, program_id, name, capacity) VALUES
+(5, NULL, 'Prep Section 1', 35),
+(5, NULL, 'Prep Section 2', 35),
+(5, NULL, 'Prep Section 3', 35),
+(5, NULL, 'Prep Section 4', 35);
 
 -- Standard Periods
 INSERT INTO standard_periods (period_number, start_time, end_time, label) VALUES
@@ -287,7 +295,12 @@ INSERT INTO courses (code, name, credit_hours, department, year_id, color_hex) V
 ('CS303', 'Computer Networks & Protocols', 3, 'Networks', 3, '#14b8a6'),
 -- Year 4 Courses
 ('CS401', 'Artificial Intelligence & ML', 3, 'Computer Science', 4, '#84cc16'),
-('CS499', 'Senior Capstone Graduation Project', 4, 'Software Engineering', 4, '#a855f7');
+('CS499', 'Senior Capstone Graduation Project', 4, 'Software Engineering', 4, '#a855f7'),
+-- Preparatory Year Courses (General Engineering & Basic Sciences)
+('MATH001', 'Engineering Mathematics I (Calculus & Algebra)', 3, 'Basic Sciences', 5, '#3b82f6'),
+('PHYS001', 'Engineering Physics (Mechanics & Waves)', 3, 'Basic Sciences', 5, '#06b6d4'),
+('ENG001', 'Engineering Graphics & Descriptive Geometry', 3, 'General Engineering', 5, '#f59e0b'),
+('CHEM001', 'General Chemistry for Engineers', 3, 'Basic Sciences', 5, '#10b981');
 
 -- Initial schedules:
 -- Sunday (day 0)
@@ -362,14 +375,90 @@ function migrateExistingDatabase(db: Database) {
       `);
     }
 
-    // 4. Update any sections where program_id is null to sensible default
+    // 4. Update any sections where program_id is null to sensible default (EXCEPT prep year)
+    const prepCheck = db.exec("SELECT id FROM academic_years WHERE code = 'YEAR_PREP' OR name LIKE '%Prep%';");
+    let prepYearId: number;
+    if (!prepCheck || prepCheck.length === 0 || !prepCheck[0].values.length) {
+      db.run(`
+        INSERT INTO academic_years (code, name, semester) VALUES
+        ('YEAR_PREP', 'Preparatory Year', 'Fall Semester 2026');
+      `);
+      const getPrep = db.exec("SELECT id FROM academic_years WHERE code = 'YEAR_PREP';");
+      prepYearId = Number(getPrep[0].values[0][0]);
+    } else {
+      prepYearId = Number(prepCheck[0].values[0][0]);
+    }
+
     db.run(`
-      UPDATE sections SET program_id = 1 WHERE program_id IS NULL AND (name LIKE '%CS%' OR name LIKE '%Group A%' OR name LIKE '%Group B%');
-      UPDATE sections SET program_id = 2 WHERE program_id IS NULL AND (name LIKE '%SE%' OR name LIKE '%Software%');
-      UPDATE sections SET program_id = 3 WHERE program_id IS NULL AND (name LIKE '%AI%' OR name LIKE '%Data%');
-      UPDATE sections SET program_id = 4 WHERE program_id IS NULL AND (name LIKE '%CYBER%' OR name LIKE '%Cyber%' OR name LIKE '%Network%');
-      UPDATE sections SET program_id = 1 WHERE program_id IS NULL;
+      UPDATE sections SET program_id = 1 WHERE program_id IS NULL AND year_id != ${prepYearId} AND (name LIKE '%CS%' OR name LIKE '%Group A%' OR name LIKE '%Group B%');
+      UPDATE sections SET program_id = 2 WHERE program_id IS NULL AND year_id != ${prepYearId} AND (name LIKE '%SE%' OR name LIKE '%Software%');
+      UPDATE sections SET program_id = 3 WHERE program_id IS NULL AND year_id != ${prepYearId} AND (name LIKE '%AI%' OR name LIKE '%Data%');
+      UPDATE sections SET program_id = 4 WHERE program_id IS NULL AND year_id != ${prepYearId} AND (name LIKE '%CYBER%' OR name LIKE '%Cyber%' OR name LIKE '%Network%');
+      UPDATE sections SET program_id = 1 WHERE program_id IS NULL AND year_id != ${prepYearId};
     `);
+
+    // 5. Ensure Preparatory Year has general sections with program_id = NULL
+    const prepSecCheck = db.exec(`SELECT COUNT(*) FROM sections WHERE year_id = ${prepYearId};`);
+    const prepSecCount = Number(prepSecCheck[0]?.values[0]?.[0] || 0);
+    if (prepSecCount === 0) {
+      db.run(`
+        INSERT INTO sections (year_id, program_id, name, capacity) VALUES
+        (${prepYearId}, NULL, 'Prep Section 1', 35),
+        (${prepYearId}, NULL, 'Prep Section 2', 35),
+        (${prepYearId}, NULL, 'Prep Section 3', 35),
+        (${prepYearId}, NULL, 'Prep Section 4', 35);
+      `);
+    } else {
+      db.run(`UPDATE sections SET program_id = NULL WHERE year_id = ${prepYearId};`);
+    }
+
+    // 6. Ensure Preparatory Year has general courses
+    const prepCourseCheck = db.exec(`SELECT COUNT(*) FROM courses WHERE year_id = ${prepYearId};`);
+    const prepCourseCount = Number(prepCourseCheck[0]?.values[0]?.[0] || 0);
+    if (prepCourseCount === 0) {
+      db.run(`
+        INSERT INTO courses (code, name, credit_hours, department, year_id, color_hex) VALUES
+        ('MATH001', 'Engineering Mathematics I (Calculus & Algebra)', 3, 'Basic Sciences', ${prepYearId}, '#3b82f6'),
+        ('PHYS001', 'Engineering Physics (Mechanics & Waves)', 3, 'Basic Sciences', ${prepYearId}, '#06b6d4'),
+        ('ENG001', 'Engineering Graphics & Descriptive Geometry', 3, 'General Engineering', ${prepYearId}, '#f59e0b'),
+        ('CHEM001', 'General Chemistry for Engineers', 3, 'Basic Sciences', ${prepYearId}, '#10b981');
+      `);
+    }
+
+    // 7. Ensure Preparatory Year has sample schedules
+    const prepSchedCheck = db.exec(`SELECT COUNT(*) FROM schedules WHERE academic_year_id = ${prepYearId};`);
+    const prepSchedCount = Number(prepSchedCheck[0]?.values[0]?.[0] || 0);
+    if (prepSchedCount === 0) {
+      const cRes = db.exec(`SELECT id, code FROM courses WHERE year_id = ${prepYearId};`);
+      const cMap: Record<string, number> = {};
+      if (cRes && cRes[0]) {
+        cRes[0].values.forEach((v) => { cMap[String(v[1])] = Number(v[0]); });
+      }
+      const sRes = db.exec(`SELECT id, name FROM sections WHERE year_id = ${prepYearId} ORDER BY id ASC;`);
+      const sList: number[] = [];
+      if (sRes && sRes[0]) {
+        sRes[0].values.forEach((v) => { sList.push(Number(v[0])); });
+      }
+
+      if (cMap['MATH001']) {
+        db.run(`
+          INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+          VALUES (${prepYearId}, NULL, ${cMap['MATH001']}, 1, 1, 0, 1, '08:30', '10:00', 'LECTURE', 'Preparatory Year General Cohort');
+        `);
+      }
+      if (cMap['PHYS001'] && sList[0]) {
+        db.run(`
+          INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+          VALUES (${prepYearId}, ${sList[0]}, ${cMap['PHYS001']}, 5, 7, 0, 2, '10:15', '11:45', 'SECTION', 'Prep Section 1 Physics Tutorial');
+        `);
+      }
+      if (cMap['ENG001'] && sList[1]) {
+        db.run(`
+          INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+          VALUES (${prepYearId}, ${sList[1]}, ${cMap['ENG001']}, 6, 8, 0, 2, '10:15', '11:45', 'SECTION', 'Prep Section 2 Graphics Tutorial');
+        `);
+      }
+    }
   } catch (err) {
     console.warn('Database migration note:', err);
   }

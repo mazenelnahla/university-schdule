@@ -112,11 +112,25 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
 
   // For PROGRAM_SHEETS layout: if a specific program is selected, only print that program's sheet
   const sheetsPrograms = useMemo(() => {
-    if (selectedProgramId === 'ALL') {
-      return programsInThisYear.filter((p) => p.yearSections.length > 0);
+    const activeProgs = programsInThisYear.filter((p) => p.yearSections.length > 0);
+    if (activeProgs.length === 0) {
+      // General year (e.g. Preparatory Year) with no program tracks
+      const generalSecs = sections.filter((s) => s.yearId === selectedYearId);
+      return [
+        {
+          id: 0,
+          code: 'PREP',
+          name: activeYear?.name || 'Preparatory Year',
+          department: 'Basic Sciences & General Engineering',
+          yearSections: generalSecs,
+        },
+      ];
     }
-    return programsInThisYear.filter((p) => p.id === selectedProgramId);
-  }, [programsInThisYear, selectedProgramId]);
+    if (selectedProgramId === 'ALL') {
+      return activeProgs;
+    }
+    return activeProgs.filter((p) => p.id === selectedProgramId);
+  }, [programsInThisYear, selectedProgramId, sections, selectedYearId, activeYear]);
 
   const handlePrint = () => {
     window.print();
@@ -201,21 +215,29 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
               <label htmlFor="print-prog-select" className="print-control-label">
                 Degree Program Filter
               </label>
-              <select
-                id="print-prog-select"
-                className="print-control-select"
-                value={selectedProgramId}
-                onChange={(e) =>
-                  setSelectedProgramId(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))
-                }
-              >
-                <option value="ALL">All Programs (Complete Cohort)</option>
-                {programs.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.code})
-                  </option>
-                ))}
-              </select>
+              {programsInThisYear.some((p) => p.yearSections.length > 0) ? (
+                <select
+                  id="print-prog-select"
+                  className="print-control-select"
+                  value={selectedProgramId}
+                  onChange={(e) =>
+                    setSelectedProgramId(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))
+                  }
+                >
+                  <option value="ALL">All Programs (Complete Cohort)</option>
+                  {programsInThisYear
+                    .filter((p) => p.yearSections.length > 0)
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.code})
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <select id="print-prog-select" className="print-control-select" disabled>
+                  <option value="ALL">General Cohort (No Specific Programs)</option>
+                </select>
+              )}
             </div>
 
             {/* Saturday Toggle */}
