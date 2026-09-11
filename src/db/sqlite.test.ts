@@ -5,8 +5,12 @@ import path from 'path';
 async function testDatabase() {
   console.log('Testing offline SQLite database engine...');
   const wasmBuffer = fs.readFileSync(path.resolve('./public/sql-wasm.wasm'));
+  const wasmBinary = wasmBuffer.buffer.slice(
+    wasmBuffer.byteOffset,
+    wasmBuffer.byteOffset + wasmBuffer.byteLength
+  ) as ArrayBuffer;
   const SQL = await initSqlJs({
-    wasmBinary: wasmBuffer,
+    wasmBinary,
   });
 
   const db = new SQL.Database();

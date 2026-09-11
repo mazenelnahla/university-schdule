@@ -45,7 +45,7 @@ interface TimetableCalendarProps {
   courses?: Course[];
   standardPeriods: StandardPeriod[];
   selectedYearId: number | 'ALL';
-  viewMode: 'YEAR' | 'ROOM' | 'PROFESSOR';
+  viewMode: 'YEAR' | 'PROGRAM' | 'ROOM' | 'PROFESSOR';
   adminUser: AdminUser | null;
   onEditSchedule: (schedule: ScheduleWithDetails) => void;
   onDeleteSchedule: (id: number) => void;
@@ -73,8 +73,6 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
   const [selectedDay, setSelectedDay] = useState<number>(0); // 0 = Sunday
   const [isFullWeekView, setIsFullWeekView] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedRoomFilter, setSelectedRoomFilter] = useState<number | 'ALL'>('ALL');
-  const [selectedProfFilter, setSelectedProfFilter] = useState<number | 'ALL'>('ALL');
   const [selectedProgramFilter, setSelectedProgramFilter] = useState<number | 'ALL'>('ALL');
 
   // Filter schedules based on search term and optional room/prof/program filters
@@ -94,8 +92,8 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
         if (!matches) return false;
       }
 
-      // Year filter (if not in ROOM or PROFESSOR mode)
-      if (viewMode === 'YEAR' && selectedYearId !== 'ALL') {
+      // Year filter (if in YEAR or PROGRAM mode)
+      if ((viewMode === 'YEAR' || viewMode === 'PROGRAM') && selectedYearId !== 'ALL') {
         if (s.academicYearId !== selectedYearId) return false;
       }
 
@@ -109,17 +107,9 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
         }
       }
 
-      // Extra filters
-      if (selectedRoomFilter !== 'ALL' && s.roomId !== selectedRoomFilter) {
-        return false;
-      }
-      if (selectedProfFilter !== 'ALL' && s.professorId !== selectedProfFilter) {
-        return false;
-      }
-
       return true;
     });
-  }, [schedules, searchTerm, viewMode, selectedYearId, selectedProgramFilter, selectedRoomFilter, selectedProfFilter, sections]);
+  }, [schedules, searchTerm, viewMode, selectedYearId, selectedProgramFilter, sections]);
 
   // Find matching items for a given cell (day, period, and category row)
   const getSchedulesForSlot = (dayId: number, period: StandardPeriod, rowContext?: { yearId?: number; sectionId?: number; roomId?: number; professorId?: number }) => {
@@ -207,52 +197,6 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
             />
           </div>
 
-          {viewMode !== 'ROOM' && (
-            <select
-              className="quick-filter-select"
-              value={selectedRoomFilter}
-              onChange={(e) => setSelectedRoomFilter(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
-            >
-              <option value="ALL">All Rooms ({rooms.length})</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.code} ({r.name})
-                </option>
-              ))}
-            </select>
-          )}
-
-          {viewMode !== 'PROFESSOR' && (
-            <select
-              className="quick-filter-select"
-              value={selectedProfFilter}
-              onChange={(e) => setSelectedProfFilter(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
-            >
-              <option value="ALL">All Faculty ({professors.length})</option>
-              {professors.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title} {p.name}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Program Filter in Year View */}
-          {viewMode === 'YEAR' && programs && programs.length > 0 && (
-            <select
-              className="quick-filter-select program-filter-highlight"
-              value={selectedProgramFilter}
-              onChange={(e) => setSelectedProgramFilter(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
-            >
-              <option value="ALL">All Programs ({programs.length})</option>
-              {programs.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.code} - {p.name}
-                </option>
-              ))}
-            </select>
-          )}
-
           {/* Print Timetable Trigger Button */}
           {onOpenPrint && (
             <button
@@ -276,6 +220,10 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
               ? selectedYearId === 'ALL'
                 ? 'All Academic Years'
                 : activeYearObj?.name || 'Year Schedule'
+              : viewMode === 'PROGRAM'
+              ? selectedProgramFilter === 'ALL'
+                ? 'All Degree Programs'
+                : `${programs.find((p) => p.id === selectedProgramFilter)?.name || 'Program'} (${programs.find((p) => p.id === selectedProgramFilter)?.code || ''})`
               : viewMode === 'ROOM'
               ? 'Room Utilization Matrix'
               : 'Faculty Timetables'}
@@ -294,6 +242,34 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Program Selection Strip when in YEAR or PROGRAM view */}
+      {(viewMode === 'YEAR' || viewMode === 'PROGRAM') && programs && programs.length > 0 && (
+        <div className="program-selection-strip">
+          <div className="program-strip-label">
+            <GraduationCap size={16} className="text-primary" />
+            <span className="font-semibold text-xs text-secondary">Program View:</span>
+          </div>
+          <div className="program-pills-row">
+            <button
+              className={`program-filter-pill ${selectedProgramFilter === 'ALL' ? 'active' : ''}`}
+              onClick={() => setSelectedProgramFilter('ALL')}
+            >
+              All Programs ({programs.length})
+            </button>
+            {programs.map((p) => (
+              <button
+                key={p.id}
+                className={`program-filter-pill ${selectedProgramFilter === p.id ? 'active' : ''}`}
+                onClick={() => setSelectedProgramFilter(p.id)}
+              >
+                <span className="prog-pill-code">{p.code}</span>
+                <span>{p.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Main Timetable View */}
       {isFullWeekView ? (
@@ -367,6 +343,8 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                   <th className="th-entity-col">
                     {viewMode === 'YEAR'
                       ? 'Cohort / Section'
+                      : viewMode === 'PROGRAM'
+                      ? 'Program Track / Section'
                       : viewMode === 'ROOM'
                       ? 'Room / Facility'
                       : 'Professor'}
@@ -380,8 +358,8 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {/* 1. VIEW MODE: YEAR */}
-                {viewMode === 'YEAR' && (
+                {/* 1. VIEW MODE: YEAR OR PROGRAM */}
+                {(viewMode === 'YEAR' || viewMode === 'PROGRAM') && (
                   <>
                     {/* Entire Year Row for Lectures */}
                     <tr className="grid-row highlight-row">
@@ -390,7 +368,11 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                           <Users size={16} className="text-primary" />
                           <span>Whole Cohort (Lectures)</span>
                         </div>
-                        <div className="entity-subtitle">All sections combined</div>
+                        <div className="entity-subtitle">
+                          {selectedProgramFilter === 'ALL'
+                            ? 'All sections combined'
+                            : `Lectures applicable to ${programs.find((p) => p.id === selectedProgramFilter)?.code || 'Program'}`}
+                        </div>
                       </td>
                       {standardPeriods.map((p) => {
                         const items = filteredSchedules.filter(
@@ -435,7 +417,9 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                     {/* Section Rows Grouped By Degree Program */}
                     {programs && programs.length > 0 ? (
                       <>
-                        {programs.map((prog) => {
+                        {programs
+                          .filter((prog) => selectedProgramFilter === 'ALL' || selectedProgramFilter === prog.id)
+                          .map((prog) => {
                           const progSections = activeSections.filter((s) => s.programId === prog.id);
                           if (progSections.length === 0) return null;
                           return (
@@ -443,10 +427,13 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                               <tr className="program-divider-row">
                                 <td colSpan={1 + standardPeriods.length} className="td-program-divider">
                                   <div className="program-divider-content">
-                                    <GraduationCap size={15} className="text-amber" />
-                                    <span className="font-bold">{prog.name} ({prog.code})</span>
+                                    <GraduationCap size={16} className="prog-div-icon" />
+                                    <span className="program-divider-title">{prog.name} ({prog.code})</span>
                                     <span className="program-divider-dept">• {prog.department}</span>
-                                    <span className="program-sec-count">({progSections.length} Program Section{progSections.length === 1 ? '' : 's'})</span>
+                                    <span className="program-sec-count">
+                                      {selectedProgramFilter !== 'ALL' ? 'Showing Program Independently • ' : ''}
+                                      {progSections.length} Program Section{progSections.length === 1 ? '' : 's'}
+                                    </span>
                                   </div>
                                 </td>
                               </tr>
@@ -510,8 +497,8 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                             <tr className="program-divider-row">
                               <td colSpan={1 + standardPeriods.length} className="td-program-divider">
                                 <div className="program-divider-content">
-                                  <Layers size={15} className="text-secondary" />
-                                  <span className="font-bold">General Cohort Sections</span>
+                                  <Layers size={15} className="prog-div-icon" />
+                                  <span className="program-divider-title">General Cohort Sections</span>
                                 </div>
                               </td>
                             </tr>

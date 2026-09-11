@@ -11,7 +11,6 @@ import {
   PlusCircle,
   Settings,
   Calendar,
-  Printer,
 } from 'lucide-react';
 import type { AcademicYear, AdminUser } from '../db/schema';
 import { exportDatabaseFile, importDatabaseFile } from '../db/sqlite';
@@ -20,8 +19,8 @@ interface NavbarProps {
   years: AcademicYear[];
   selectedYearId: number | 'ALL';
   onSelectYear: (yearId: number | 'ALL') => void;
-  viewMode: 'YEAR' | 'ROOM' | 'PROFESSOR';
-  onViewModeChange: (mode: 'YEAR' | 'ROOM' | 'PROFESSOR') => void;
+  viewMode: 'YEAR' | 'PROGRAM' | 'ROOM' | 'PROFESSOR';
+  onViewModeChange: (mode: 'YEAR' | 'PROGRAM' | 'ROOM' | 'PROFESSOR') => void;
   currentPage: 'TIMETABLE' | 'ADMIN_HUB';
   onNavigate: (page: 'TIMETABLE' | 'ADMIN_HUB') => void;
   adminUser: AdminUser | null;
@@ -30,7 +29,6 @@ interface NavbarProps {
   onOpenNewSchedule: () => void;
   onResetDb: () => void;
   onRefreshData: () => void;
-  onOpenPrint?: () => void;
 }
 
 export const Navbar: FC<NavbarProps> = ({
@@ -47,7 +45,6 @@ export const Navbar: FC<NavbarProps> = ({
   onOpenNewSchedule,
   onResetDb,
   onRefreshData,
-  onOpenPrint,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -87,7 +84,7 @@ export const Navbar: FC<NavbarProps> = ({
           </div>
           <div>
             <h1 className="brand-title">UniSchedule Pro</h1>
-            <p className="brand-subtitle">University Academic Timetable &amp; Conflict Engine (Offline SQLite)</p>
+            <p className="brand-subtitle">Faculty of Engineering | East Port Said University Academic Timetable</p>
           </div>
         </div>
 
@@ -133,17 +130,6 @@ export const Navbar: FC<NavbarProps> = ({
               <RotateCcw size={15} />
               <span>Reset</span>
             </button>
-
-            {onOpenPrint && (
-              <button
-                onClick={onOpenPrint}
-                className="action-btn text-btn print-nav-action-btn"
-                title="Print official academic timetable for this year & programs"
-              >
-                <Printer size={15} className="text-primary" />
-                <span>Print Timetable</span>
-              </button>
-            )}
           </div>
 
           {/* Admin Authentication & Management */}
@@ -233,6 +219,14 @@ export const Navbar: FC<NavbarProps> = ({
             >
               <Calendar size={15} />
               <span>By Year & Cohort</span>
+            </button>
+            <button
+              className={`view-mode-btn ${viewMode === 'PROGRAM' ? 'active' : ''}`}
+              onClick={() => onViewModeChange('PROGRAM')}
+              title="Show each degree program independently"
+            >
+              <GraduationCap size={15} />
+              <span>By Program</span>
             </button>
             <button
               className={`view-mode-btn ${viewMode === 'ROOM' ? 'active' : ''}`}

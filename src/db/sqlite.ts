@@ -297,7 +297,15 @@ VALUES (1, NULL, 1, 1, 1, 0, 1, '08:30', '10:00', 'LECTURE', 'Mandatory attendan
 
 -- Sunday: Year 1 CS101 Section 1 Lab in LAB-101, Period 2 (10:15-11:45) with Eng. Patterson
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (1, 1, 1, 5, 4, 0, 2, '10:15', '11:45', 'SECTION', 'Practical coding exercises in C++');
+VALUES (1, 1, 1, 5, 4, 0, 2, '10:15', '11:45', 'SECTION', 'CS Section 1: Practical coding exercises in C++');
+
+-- Sunday: Year 1 SE Section 1 Lab in LAB-102, Period 2 (10:15-11:45) with Eng. Margaret Hamilton
+INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+VALUES (1, 3, 1, 6, 5, 0, 2, '10:15', '11:45', 'SECTION', 'SE Section 1: Software Design & Testing Lab');
+
+-- Sunday: Year 1 AI Section 1 Lab in LAB-201, Period 2 (10:15-11:45) with Eng. Linus Torvalds
+INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+VALUES (1, 4, 1, 7, 6, 0, 2, '10:15', '11:45', 'SECTION', 'AI Section 1: Data Analysis & Python Lab');
 
 -- Sunday: Year 2: CS201 Lecture in HALL-B, Period 1 (08:30-10:00) with Dr. Knuth
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)

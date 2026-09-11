@@ -57,7 +57,7 @@ export function App() {
   const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
 
   const [selectedYearId, setSelectedYearId] = useState<number | 'ALL'>(1);
-  const [viewMode, setViewMode] = useState<'YEAR' | 'ROOM' | 'PROFESSOR'>('YEAR');
+  const [viewMode, setViewMode] = useState<'YEAR' | 'PROGRAM' | 'ROOM' | 'PROFESSOR'>('YEAR');
 
   // Modals state
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -229,7 +229,6 @@ export function App() {
         onOpenNewSchedule={() => handleOpenNewSchedule()}
         onResetDb={handleResetDb}
         onRefreshData={loadData}
-        onOpenPrint={() => setIsPrintModalOpen(true)}
       />
 
       {/* Main Page: Timetable or Admin Hub Page */}
