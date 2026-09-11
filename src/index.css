@@ -842,7 +842,8 @@ body {
 }
 
 .schedule-dialog-card {
-  max-width: 680px;
+  max-width: 960px;
+  width: 92vw;
 }
 
 .admin-manager-card {
