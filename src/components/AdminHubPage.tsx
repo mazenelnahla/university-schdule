@@ -30,6 +30,7 @@ import type {
   Program,
   RoomType,
   TargetGroup,
+  TeachingAssistant,
 } from '../db/schema';
 import {
   addProfessor,
@@ -48,10 +49,14 @@ import {
   addProgram,
   deleteProgram,
   syncAiCurriculumFromTemplate,
+  addTeachingAssistant,
+  updateTeachingAssistant,
+  deleteTeachingAssistant,
 } from '../db/scheduleService';
 
 interface AdminHubPageProps {
   professors: Professor[];
+  teachingAssistants: TeachingAssistant[];
   rooms: Room[];
   courses: Course[];
   years: AcademicYear[];
@@ -64,6 +69,7 @@ interface AdminHubPageProps {
 
 export const AdminHubPage: FC<AdminHubPageProps> = ({
   professors,
+  teachingAssistants,
   rooms,
   courses,
   years,
@@ -73,7 +79,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   onBackToTimetable,
   onOpenAutoSchedule,
 }) => {
-  const [activeTab, setActiveTab] = useState<'ROOMS' | 'PROFESSORS' | 'COURSES' | 'SECTIONS' | 'PROGRAMS'>('ROOMS');
+  const [activeTab, setActiveTab] = useState<'ROOMS' | 'PROFESSORS' | 'TEACHING_ASSISTANTS' | 'COURSES' | 'SECTIONS' | 'PROGRAMS'>('ROOMS');
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -86,6 +92,13 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   const [profOffice, setProfOffice] = useState('');
   const [profAvailableDays, setProfAvailableDays] = useState<number[]>([]);
   const [editingProfId, setEditingProfId] = useState<number | null>(null);
+  const [taName, setTaName] = useState('');
+  const [taDept, setTaDept] = useState('Computer Science');
+  const [taEmail, setTaEmail] = useState('');
+  const [taPhone, setTaPhone] = useState('');
+  const [taOffice, setTaOffice] = useState('');
+  const [taAvailableDays, setTaAvailableDays] = useState<number[]>([]);
+  const [editingTaId, setEditingTaId] = useState<number | null>(null);
 
   // Rooms Form State
   const [roomCode, setRoomCode] = useState('');
@@ -147,6 +160,16 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     const q = searchQuery.toLowerCase();
     return professors.filter((p) => p.name.toLowerCase().includes(q) || p.department.toLowerCase().includes(q) || p.email.toLowerCase().includes(q));
   }, [professors, searchQuery]);
+
+  const filteredTeachingAssistants = useMemo(() => {
+    if (!searchQuery) return teachingAssistants;
+    const q = searchQuery.toLowerCase();
+    return teachingAssistants.filter((assistant) =>
+      assistant.name.toLowerCase().includes(q) ||
+      assistant.department.toLowerCase().includes(q) ||
+      assistant.email.toLowerCase().includes(q)
+    );
+  }, [teachingAssistants, searchQuery]);
 
   const filteredCourses = useMemo(() => {
     let result = [...courses];
@@ -312,6 +335,60 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     try {
       await deleteProfessor(id);
       showStatus('Professor deleted.');
+      onDataChanged();
+    } catch (err) {
+      showStatus((err as Error).message, 'error');
+    }
+  };
+
+  const handleSaveTeachingAssistant = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      const availableDays = taAvailableDays.length > 0 && taAvailableDays.length < 7
+        ? [...taAvailableDays].sort((a, b) => a - b)
+        : undefined;
+      const assistant = {
+        name: taName.trim(),
+        department: taDept.trim(),
+        email: taEmail.trim(),
+        phone: taPhone.trim() || undefined,
+        office: taOffice.trim() || undefined,
+        availableDays,
+      };
+      if (editingTaId) {
+        await updateTeachingAssistant(editingTaId, assistant);
+        showStatus('Teaching assistant updated successfully!');
+      } else {
+        await addTeachingAssistant(assistant);
+        showStatus('Teaching assistant added successfully!');
+      }
+      setEditingTaId(null);
+      setTaName('');
+      setTaEmail('');
+      setTaPhone('');
+      setTaOffice('');
+      setTaAvailableDays([]);
+      onDataChanged();
+    } catch (err) {
+      showStatus((err as Error).message, 'error');
+    }
+  };
+
+  const handleEditTeachingAssistant = (assistant: TeachingAssistant) => {
+    setEditingTaId(assistant.id);
+    setTaName(assistant.name);
+    setTaDept(assistant.department);
+    setTaEmail(assistant.email);
+    setTaPhone(assistant.phone || '');
+    setTaOffice(assistant.office || '');
+    setTaAvailableDays(assistant.availableDays || []);
+  };
+
+  const handleDeleteTeachingAssistant = async (id: number) => {
+    if (!window.confirm('Delete this teaching assistant?')) return;
+    try {
+      await deleteTeachingAssistant(id);
+      showStatus('Teaching assistant deleted.');
       onDataChanged();
     } catch (err) {
       showStatus((err as Error).message, 'error');
@@ -563,6 +640,13 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
             </div>
           </div>
           <div className="admin-stat-card">
+            <Users size={18} className="stat-icon text-purple" />
+            <div className="stat-info">
+              <span className="stat-number">{teachingAssistants.length}</span>
+              <span className="stat-label">Teaching Assistants</span>
+            </div>
+          </div>
+          <div className="admin-stat-card">
             <BookOpen size={18} className="stat-icon text-emerald" />
             <div className="stat-info">
               <span className="stat-number">{courses.length}</span>
@@ -610,6 +694,13 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           >
             <User size={17} />
             <span>Faculty Members ({professors.length})</span>
+          </button>
+          <button
+            className={`admin-main-tab ${activeTab === 'TEACHING_ASSISTANTS' ? 'active' : ''}`}
+            onClick={() => setActiveTab('TEACHING_ASSISTANTS')}
+          >
+            <Users size={17} />
+            <span>Teaching Assistants ({teachingAssistants.length})</span>
           </button>
           <button
             className={`admin-main-tab ${activeTab === 'COURSES' ? 'active' : ''}`}
@@ -1080,7 +1171,130 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           </div>
         )}
 
-        {/* 3. COURSES MANAGEMENT */}
+        {/* 3. TEACHING ASSISTANTS MANAGEMENT */}
+        {activeTab === 'TEACHING_ASSISTANTS' && (
+          <div className="admin-grid-layout">
+            <div className="admin-panel card-glow">
+              <div className="panel-header">
+                <div className="panel-title-group">
+                  <Users size={18} className="text-purple" />
+                  <h2 className="panel-title-text">{editingTaId ? 'Edit Teaching Assistant' : 'Register Teaching Assistant'}</h2>
+                </div>
+                <span className="panel-badge">{editingTaId ? 'Editing Mode' : 'New Entry'}</span>
+              </div>
+              <form onSubmit={handleSaveTeachingAssistant} className="admin-panel-form">
+                <div className="form-group">
+                  <label className="form-label">Full Name *</label>
+                  <input className="form-input" value={taName} onChange={(e) => setTaName(e.target.value)} placeholder="e.g. Eng. David Patterson" required />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Academic Department *</label>
+                  {programs.length > 0 ? (
+                    <select className="form-select" value={taDept} onChange={(e) => setTaDept(e.target.value)} required>
+                      <option value="">-- Select Academic Department --</option>
+                      {programs.map((p) => <option key={p.id} value={p.name}>{p.code} - {p.name}</option>)}
+                      <option value="Basic Sciences">Basic Sciences (Preparatory)</option>
+                      <option value="General Engineering">General Engineering</option>
+                    </select>
+                  ) : (
+                    <input className="form-input" value={taDept} onChange={(e) => setTaDept(e.target.value)} required />
+                  )}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Official Email *</label>
+                  <input type="email" className="form-input" value={taEmail} onChange={(e) => setTaEmail(e.target.value)} placeholder="assistant@univ.edu" required />
+                </div>
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label className="form-label">Phone</label>
+                    <input className="form-input" value={taPhone} onChange={(e) => setTaPhone(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Office Location</label>
+                    <input className="form-input" value={taOffice} onChange={(e) => setTaOffice(e.target.value)} />
+                  </div>
+                </div>
+                <div className="form-group prof-days-group">
+                  <label className="form-label flex-center-gap"><Calendar size={14} className="text-purple" /> Campus Attendance Days</label>
+                  <div className="day-chips-grid">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, day) => {
+                      const selected = taAvailableDays.length === 0 || taAvailableDays.length === 7 || taAvailableDays.includes(day);
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          className={`day-chip-btn ${selected ? 'active' : 'inactive'}`}
+                          onClick={() => {
+                            const current = taAvailableDays.length === 0 || taAvailableDays.length === 7 ? [0, 1, 2, 3, 4, 5, 6] : taAvailableDays;
+                            const next = current.includes(day) ? current.filter((value) => value !== day) : [...current, day];
+                            setTaAvailableDays(next.length === 7 ? [] : next.sort((a, b) => a - b));
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="form-actions-row">
+                  {editingTaId && (
+                    <button type="button" className="admin-cancel-btn" onClick={() => {
+                      setEditingTaId(null);
+                      setTaName('');
+                      setTaEmail('');
+                      setTaPhone('');
+                      setTaOffice('');
+                      setTaAvailableDays([]);
+                    }}>
+                      <X size={16} /><span>Cancel</span>
+                    </button>
+                  )}
+                  <button type="submit" className="admin-submit-btn">
+                    {editingTaId ? <Check size={16} /> : <Plus size={16} />}
+                    <span>{editingTaId ? 'Update Assistant' : 'Add Teaching Assistant'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+            <div className="admin-panel">
+              <div className="panel-header">
+                <div className="panel-title-group">
+                  <Filter size={16} className="text-secondary" />
+                  <h2 className="panel-title-text">Teaching Assistant Roster ({filteredTeachingAssistants.length})</h2>
+                </div>
+              </div>
+              <div className="admin-page-list">
+                {filteredTeachingAssistants.length === 0 ? (
+                  <div className="admin-empty-state"><p>No teaching assistants registered yet.</p></div>
+                ) : filteredTeachingAssistants.map((assistant) => (
+                  <div key={assistant.id} className="admin-entry-card">
+                    <div className="entry-details">
+                      <div className="entry-title-line">
+                        <span className="title-pill">TA</span>
+                        <span className="entry-name">{assistant.name}</span>
+                      </div>
+                      <div className="entry-sub-line">
+                        <span>{assistant.department}</span><span>• {assistant.email}</span>
+                        {assistant.office && <span>• Office: {assistant.office}</span>}
+                      </div>
+                      <div className="entry-attendance-line">
+                        <span className="attendance-pill all-days"><Calendar size={12} /><span>
+                          {assistant.availableDays?.length ? `Attends: ${assistant.availableDays.map((day) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][day]).join(', ')}` : 'Attends: All Days'}
+                        </span></span>
+                      </div>
+                    </div>
+                    <div className="entry-buttons">
+                      <button className="icon-btn" onClick={() => handleEditTeachingAssistant(assistant)} title="Edit"><Edit2 size={15} /></button>
+                      <button className="icon-btn danger" onClick={() => handleDeleteTeachingAssistant(assistant.id)} title="Delete"><Trash2 size={15} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 4. COURSES MANAGEMENT */}
         {activeTab === 'COURSES' && (
           <div className="admin-grid-layout">
             <div className="admin-panel card-glow">

@@ -2,10 +2,6 @@ import initSqlJs, { type Database } from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { seedAiCurriculum } from './aiCurriculumData';
 
-const DB_INDEXED_DB_NAME = 'UniversityScheduleDB';
-const DB_STORE_NAME = 'sqlite_binary';
-const DB_KEY = 'university_timetable_db';
-
 let dbInstance: Database | null = null;
 let initPromise: Promise<Database> | null = null;
 let sqlStaticPromise: Promise<any> | null = null;
@@ -52,59 +48,24 @@ async function getSqlJsStatic() {
   return sqlStaticPromise;
 }
 
-// IndexedDB Helper to persist raw SQLite Uint8Array
-function openIndexedDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_INDEXED_DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(DB_STORE_NAME)) {
-        db.createObjectStore(DB_STORE_NAME);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+export async function saveToLocalFile(db: Database): Promise<void> {
+  const binary = db.export();
+  const body = binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength) as ArrayBuffer;
+  const response = await fetch('/api/database', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/x-sqlite3' },
+    body,
   });
-}
-
-async function loadFromIndexedDB(): Promise<Uint8Array | null> {
-  try {
-    const idb = await openIndexedDB();
-    return new Promise((resolve, reject) => {
-      const tx = idb.transaction(DB_STORE_NAME, 'readonly');
-      const store = tx.objectStore(DB_STORE_NAME);
-      const req = store.get(DB_KEY);
-      req.onsuccess = () => {
-        if (req.result instanceof Uint8Array) {
-          resolve(req.result);
-        } else {
-          resolve(null);
-        }
-      };
-      req.onerror = () => reject(req.error);
-    });
-  } catch (err) {
-    console.warn('Failed to load SQLite from IndexedDB:', err);
-    return null;
+  if (!response.ok) {
+    throw new Error(`Failed to save project database (${response.status})`);
   }
 }
 
-export async function saveToIndexedDB(db: Database): Promise<void> {
-  try {
-    const data = db.export();
-    const idb = await openIndexedDB();
-    return new Promise((resolve, reject) => {
-      const tx = idb.transaction(DB_STORE_NAME, 'readwrite');
-      const store = tx.objectStore(DB_STORE_NAME);
-      const req = store.put(data, DB_KEY);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
-  } catch (err) {
-    console.error('Failed to save SQLite to IndexedDB:', err);
-  }
+export async function openLocalDatabaseFile(): Promise<Database> {
+  return getSqliteDb();
 }
 
+// Kept as a compatibility alias for database service modules.
 // SQL Schema definition
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS admin_users (
@@ -142,6 +103,16 @@ CREATE TABLE IF NOT EXISTS professors (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   title TEXT NOT NULL,
+  department TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  phone TEXT,
+  office TEXT,
+  available_days TEXT
+);
+
+CREATE TABLE IF NOT EXISTS teaching_assistants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
   department TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   phone TEXT,
@@ -214,8 +185,6 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 `;
 
-// Essential foundation required for the system to operate (Admin account, Academic Years, Standard Periods)
-// NO sample courses, NO sample sections, NO sample schedules, NO sample rooms, NO sample professors.
 const SYSTEM_BOOTSTRAP_SQL = `
 -- Default Admin: admin / admin123
 INSERT INTO admin_users (username, password_hash, display_name)
@@ -237,115 +206,6 @@ INSERT INTO standard_periods (period_number, start_time, end_time, label) VALUES
 (4, '14:30', '15:45', 'Period 4 (02:30 - 03:45)');
 `;
 
-// Optional demo/sample university dataset (can be loaded on demand)
-const SAMPLE_DATA_SQL = `
--- Academic Programs
-INSERT INTO programs (id, code, name, department) VALUES
-(1, 'CS', 'Computer Science', 'Department of Computer Science'),
-(2, 'SE', 'Software Engineering', 'Department of Software Engineering'),
-(3, 'AI', 'Artificial Intelligence & Data Science', 'Department of Computer Science'),
-(4, 'CYBER', 'Cybersecurity & Computer Networks', 'Department of Networks');
-
--- Sections for Year 1
-INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-(1, 1, 'CS Section 1 (Group A)', 35),
-(1, 1, 'CS Section 2 (Group B)', 35),
-(1, 2, 'SE Section 1 (Group A)', 35),
-(1, 3, 'AI Section 1 (Group A)', 35);
-
--- Sections for Year 2
-INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-(2, 1, 'CS Section 1 (Algorithms)', 30),
-(2, 2, 'SE Section 1 (OOP & Design)', 30),
-(2, 4, 'CYBER Section 1 (Network Security)', 30);
-
--- Sections for Year 3
-INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-(3, 1, 'CS Section 1 (Databases)', 28),
-(3, 3, 'AI Section 1 (Machine Learning)', 28),
-(3, 4, 'CYBER Section 1 (Protocols & Defense)', 28);
-
--- Sections for Year 4
-INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-(4, 1, 'CS Section 1 (Graduation Projects)', 25),
-(4, 2, 'SE Section 1 (Enterprise Capstone)', 25),
-(4, 3, 'AI Section 1 (Deep Learning Capstone)', 25);
-
--- Sections for Preparatory Year (Two Parallel Groups with Independent Timetables: Group A & Group B)
-INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-(5, NULL, 'Group A', 150),
-(5, NULL, 'Group B', 150);
-
--- Professors & Teaching Assistants
-INSERT INTO professors (name, title, department, email, phone, office, available_days) VALUES
-('Dr. Alan Turing', 'Prof.', 'Computer Science', 'a.turing@univ.edu', '+1-555-0101', 'Hall 301', '[0,2,4]'),
-('Dr. Grace Hopper', 'Prof.', 'Software Engineering', 'g.hopper@univ.edu', '+1-555-0102', 'Hall 304', '[1,3]'),
-('Dr. Donald Knuth', 'Prof.', 'Algorithms & Mathematics', 'd.knuth@univ.edu', '+1-555-0103', 'Hall 205', '[0,1,2]'),
-('Dr. Barbara Liskov', 'Prof.', 'Computer Systems', 'b.liskov@univ.edu', '+1-555-0104', 'Hall 310', NULL),
-('Eng. David Patterson', 'TA', 'Computer Science', 'd.patterson@univ.edu', '+1-555-0201', 'Lab Tech 1', '[0,1,2,3,4]'),
-('Eng. Margaret Hamilton', 'TA', 'Software Engineering', 'm.hamilton@univ.edu', '+1-555-0202', 'Lab Tech 2', '[0,2,3]'),
-('Eng. Linus Torvalds', 'TA', 'Operating Systems', 'l.torvalds@univ.edu', '+1-555-0203', 'Lab Tech 3', '[1,2,4]');
-
--- Rooms
-INSERT INTO rooms (code, name, type, capacity, building, floor) VALUES
-('HALL-A', 'Auditorium Alpha (Main Hall)', 'LECTURE_HALL', 220, 'Building A - Engineering', 1),
-('HALL-B', 'Auditorium Beta', 'LECTURE_HALL', 150, 'Building A - Engineering', 2),
-('HALL-C', 'Hall Gamma (Science)', 'LECTURE_HALL', 100, 'Building B - Science', 1),
-('LAB-101', 'High-Performance Computing Lab', 'COMPUTER_LAB', 40, 'Building C - IT', 1),
-('LAB-102', 'Software & AI Development Lab', 'COMPUTER_LAB', 38, 'Building C - IT', 1),
-('LAB-201', 'Cybersecurity & Networks Lab', 'COMPUTER_LAB', 35, 'Building C - IT', 2),
-('ROOM-301', 'Tutorial Classroom 301', 'TUTORIAL_ROOM', 45, 'Building B - Science', 3),
-('ROOM-302', 'Tutorial Classroom 302', 'TUTORIAL_ROOM', 45, 'Building B - Science', 3);
-
--- Courses
-INSERT INTO courses (id, code, name, credit_hours, department, year_id, program_id, color_hex, prerequisite_ids) VALUES
-(1, 'CS101', 'Introduction to Programming & Logic', 3, 'Computer Science', 1, 1, '#3b82f6', NULL),
-(2, 'MATH101', 'Calculus & Analytical Geometry', 3, 'Mathematics', 1, NULL, '#8b5cf6', NULL),
-(3, 'PHYS101', 'General Physics for Engineers', 3, 'Physics', 1, NULL, '#06b6d4', NULL),
-(4, 'CS201', 'Data Structures & Algorithms', 3, 'Computer Science', 2, 1, '#10b981', '[1]'),
-(5, 'CS202', 'Object-Oriented Programming (Java)', 3, 'Software Engineering', 2, 2, '#f59e0b', '[1]'),
-(6, 'CS203', 'Computer Architecture & Assembly', 3, 'Computer Science', 2, 1, '#ef4444', '[1]'),
-(7, 'CS301', 'Database Systems & SQL Design', 3, 'Computer Science', 3, 1, '#ec4899', '[4]'),
-(8, 'CS302', 'Operating Systems & Concurrency', 3, 'Computer Science', 3, 1, '#6366f1', '[6]'),
-(9, 'CS303', 'Computer Networks & Protocols', 3, 'Networks', 3, 4, '#14b8a6', '[6]'),
-(10, 'CS401', 'Artificial Intelligence & ML', 3, 'Computer Science', 4, 3, '#84cc16', '[2,4]'),
-(11, 'CS499', 'Senior Capstone Graduation Project', 4, 'Software Engineering', 4, 2, '#a855f7', '[5,7]'),
-(12, 'MATH001', 'Engineering Mathematics I (Calculus & Algebra)', 3, 'Basic Sciences', 5, NULL, '#3b82f6', NULL),
-(13, 'PHYS001', 'Engineering Physics (Mechanics & Waves)', 3, 'Basic Sciences', 5, NULL, '#06b6d4', NULL),
-(14, 'ENG001', 'Engineering Graphics & Descriptive Geometry', 3, 'General Engineering', 5, NULL, '#f59e0b', NULL),
-(15, 'CHEM001', 'General Chemistry for Engineers', 3, 'Basic Sciences', 5, NULL, '#10b981', NULL);
-
--- Course Dependencies (GPA System)
-INSERT INTO course_dependencies (course_id, prerequisite_id) VALUES
-(4, 1),
-(5, 1),
-(6, 1),
-(7, 4),
-(8, 6),
-(9, 6),
-(10, 2),
-(10, 4),
-(11, 5),
-(11, 7);
-
--- Schedules
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (1, NULL, 1, 1, 1, 0, 1, '10:00', '11:15', 'LECTURE', 'Mandatory attendance for all Year 1');
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (1, 1, 1, 5, 4, 0, 2, '11:30', '12:45', 'SECTION', 'CS Section 1 Practical Lab');
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (1, 2, 1, 6, 5, 0, 2, '11:30', '12:45', 'SECTION', 'CS Section 2 Practical Lab');
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (2, 3, 4, 7, 4, 1, 2, '11:30', '12:45', 'SECTION', 'Algorithms & Data Structures Practical Section');
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (2, NULL, 4, 2, 2, 0, 3, '13:00', '14:15', 'LECTURE', 'Year 2 Algorithms Lecture (Moved to P3 to avoid GPA conflict with CS101)');
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (3, NULL, 7, 3, 3, 1, 1, '10:00', '11:15', 'LECTURE', 'Year 3 Database Theory');
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (4, NULL, 10, 1, 1, 2, 1, '10:00', '11:15', 'LECTURE', 'Year 4 AI & Neural Networks');
-INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (5, NULL, 12, 1, 1, 0, 1, '10:00', '11:15', 'LECTURE', 'Preparatory Calculus Lecture');
-`;
 
 const PROGRAMS_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS programs (
@@ -379,26 +239,6 @@ export function migrateExistingDatabase(db: Database) {
         label TEXT NOT NULL
       );
     `);
-    const periodsCheck = db.exec("SELECT end_time FROM standard_periods WHERE id = 1 OR period_number = 1;");
-    const firstPeriodEnd = periodsCheck?.[0]?.values?.[0]?.[0];
-    if (firstPeriodEnd !== '11:15') {
-      db.run(`
-        DELETE FROM standard_periods;
-        INSERT INTO standard_periods (id, period_number, start_time, end_time, label) VALUES
-        (1, 1, '10:00', '11:15', 'Period 1 (10:00 - 11:15)'),
-        (2, 2, '11:30', '12:45', 'Period 2 (11:30 - 12:45)'),
-        (3, 3, '13:00', '14:15', 'Period 3 (01:00 - 02:15)'),
-        (4, 4, '14:30', '15:45', 'Period 4 (02:30 - 03:45)');
-      `);
-      // Update any existing schedules referencing old period timings
-      db.run(`
-        UPDATE schedules SET start_time = '10:00', end_time = '11:15' WHERE period_id = 1;
-        UPDATE schedules SET start_time = '11:30', end_time = '12:45' WHERE period_id = 2;
-        UPDATE schedules SET start_time = '13:00', end_time = '14:15' WHERE period_id = 3;
-        UPDATE schedules SET start_time = '14:30', end_time = '15:45' WHERE period_id = 4;
-        UPDATE schedules SET period_id = 4, start_time = '14:30', end_time = '15:45' WHERE period_id >= 5;
-      `);
-    }
 
     // 4. Ensure YEAR_PREP academic year level exists
     const prepCheck = db.exec("SELECT id FROM academic_years WHERE code = 'YEAR_PREP' OR name LIKE '%Prep%';");
@@ -415,6 +255,18 @@ export function migrateExistingDatabase(db: Database) {
     if (!profCols.includes('available_days')) {
       db.run('ALTER TABLE professors ADD COLUMN available_days TEXT;');
     }
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS teaching_assistants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        department TEXT NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        phone TEXT,
+        office TEXT,
+        available_days TEXT
+      );
+    `);
 
     // 6. Check if prerequisite_ids column exists in courses table
     const coursePragma = db.exec('PRAGMA table_info(courses);');
@@ -482,29 +334,22 @@ export async function getSqliteDb(): Promise<Database> {
   initPromise = (async () => {
     const SQL = await getSqlJsStatic();
 
-    const savedBinary = await loadFromIndexedDB();
-    if (savedBinary && savedBinary.length > 0) {
-      try {
-        const loadedDb = new SQL.Database(savedBinary) as Database;
-        migrateExistingDatabase(loadedDb);
-        dbInstance = loadedDb;
-        console.log('Loaded existing SQLite database from IndexedDB.');
-        await saveToIndexedDB(loadedDb);
-        return loadedDb;
-      } catch (e) {
-        console.error('Error opening saved SQLite DB, creating new:', e);
-      }
+    const response = await fetch('/api/database');
+    if (response.ok) {
+      const loadedDb = new SQL.Database(new Uint8Array(await response.arrayBuffer())) as Database;
+      migrateExistingDatabase(loadedDb);
+      dbInstance = loadedDb;
+      await saveToLocalFile(loadedDb);
+      return loadedDb;
     }
 
-    // Initialize fresh DB with empty schema, bootstrap structure, and official AI curriculum
-    console.log('Initializing fresh SQLite database with clean schema and AI curriculum...');
+    console.log('Initializing project SQLite database with clean schema and AI curriculum...');
     const freshDb = new SQL.Database() as Database;
     freshDb.run(SCHEMA_SQL);
     freshDb.run(SYSTEM_BOOTSTRAP_SQL);
     seedAiCurriculum(freshDb);
     dbInstance = freshDb;
-    await saveToIndexedDB(freshDb);
-
+    await saveToLocalFile(freshDb);
     return freshDb;
   })();
 
@@ -523,17 +368,38 @@ export async function resetDatabaseToEmpty(): Promise<Database> {
   emptyDb.run(SCHEMA_SQL);
   emptyDb.run(SYSTEM_BOOTSTRAP_SQL);
   dbInstance = emptyDb;
-  await saveToIndexedDB(emptyDb);
+  await saveToLocalFile(emptyDb);
   console.log('Database reset to empty state (sample data removed).');
   return emptyDb;
 }
 
-/**
- * Reset action: alias to resetDatabaseToEmpty() to ensure sample data is never restored by default.
- */
-export async function resetDatabaseToDefault(): Promise<Database> {
-  return resetDatabaseToEmpty();
+export async function loadSampleUniversityData(): Promise<Database> {
+  const SQL = await getSqlJsStatic();
+  const sampleDb = new SQL.Database() as Database;
+  sampleDb.run(SCHEMA_SQL);
+  sampleDb.run(SYSTEM_BOOTSTRAP_SQL);
+  sampleDb.run(`
+    INSERT INTO programs (id, code, name, department) VALUES
+      (1, 'CS', 'Computer Science', 'Department of Computer Science'),
+      (2, 'SE', 'Software Engineering', 'Department of Software Engineering');
+    INSERT INTO sections (year_id, program_id, name, capacity) VALUES
+      (1, 1, 'CS Section 1', 35), (1, 2, 'SE Section 1', 35);
+    INSERT INTO professors (name, title, department, email, phone, office)
+      VALUES ('Dr. Alan Turing', 'Prof.', 'Computer Science', 'a.turing@univ.edu', '+1-555-0101', 'Hall 301');
+    INSERT INTO rooms (code, name, type, capacity, building, floor)
+      VALUES ('HALL-A', 'Auditorium Alpha', 'LECTURE_HALL', 220, 'Engineering', 1);
+    INSERT INTO courses (id, code, name, credit_hours, department, year_id, program_id, color_hex)
+      VALUES (1, 'CS101', 'Introduction to Programming', 3, 'Computer Science', 1, 1, '#3b82f6');
+    INSERT INTO schedules
+      (academic_year_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+      VALUES (1, 1, 1, 1, 0, 1, '10:00', '11:15', 'LECTURE', 'Sample lecture');
+  `);
+  seedAiCurriculum(sampleDb);
+  dbInstance = sampleDb;
+  await saveToLocalFile(sampleDb);
+  return sampleDb;
 }
+
 
 /**
  * Clears ONLY the scheduled timetable sessions.
@@ -542,32 +408,11 @@ export async function resetDatabaseToDefault(): Promise<Database> {
 export async function clearTimetableOnly(): Promise<Database> {
   const db = await getSqliteDb();
   db.run('DELETE FROM schedules;');
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   console.log('Cleared timetable sessions only (preserved faculty, rooms, courses & programs).');
   return db;
 }
 
-/**
- * Populates sample demo university data (courses, sections, rooms, professors, and schedules)
- */
-export async function loadSampleUniversityData(): Promise<Database> {
-  const SQL = await getSqlJsStatic();
-
-  const sampleDb = new SQL.Database() as Database;
-  sampleDb.run(SCHEMA_SQL);
-  sampleDb.run(SYSTEM_BOOTSTRAP_SQL);
-  sampleDb.run(SAMPLE_DATA_SQL);
-  seedAiCurriculum(sampleDb);
-  dbInstance = sampleDb;
-  await saveToIndexedDB(sampleDb);
-  console.log('Sample university dataset loaded successfully with AI curriculum.');
-  return sampleDb;
-}
-
-/**
- * Manually synchronize or re-seed the AI curriculum and its 26 prerequisite dependencies
- * extracted from template.xlsx into the currently active database.
- */
 export async function syncAiCurriculumFromTemplate(): Promise<{
   insertedCount: number;
   updatedCount: number;
@@ -575,22 +420,13 @@ export async function syncAiCurriculumFromTemplate(): Promise<{
 }> {
   const db = await getSqliteDb();
   const res = seedAiCurriculum(db);
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   return res;
 }
 
 export async function exportDatabaseFile(): Promise<void> {
   const db = await getSqliteDb();
-  const binary = db.export();
-  const blob = new Blob([binary.buffer as ArrayBuffer], { type: 'application/x-sqlite3' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `university_schedule_${new Date().toISOString().slice(0, 10)}.sqlite`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  await saveToLocalFile(db);
 }
 
 export async function importDatabaseFile(file: File): Promise<Database> {
@@ -604,6 +440,6 @@ export async function importDatabaseFile(file: File): Promise<Database> {
     throw new Error('Invalid SQLite database file: Missing schedules table');
   }
   dbInstance = newDb;
-  await saveToIndexedDB(newDb);
+  await saveToLocalFile(newDb);
   return newDb;
 }

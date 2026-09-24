@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Navbar } from './components/Navbar';
-import { TimetableCalendar } from './components/TimetableCalendar';
-import { ScheduleDialog } from './components/ScheduleDialog';
-import { LoginModal } from './components/LoginModal';
-import { AdminHubPage } from './components/AdminHubPage';
-import { PrintTimetableModal } from './components/PrintTimetableModal';
-import { AutoScheduleModal } from './components/AutoScheduleModal';
+import { useState, useEffect, useCallback } from "react";
+import { Navbar } from "./components/Navbar";
+import { TimetableCalendar } from "./components/TimetableCalendar";
+import { ScheduleDialog } from "./components/ScheduleDialog";
+import { LoginModal } from "./components/LoginModal";
+import { AdminHubPage } from "./components/AdminHubPage";
+import { PrintTimetableModal } from "./components/PrintTimetableModal";
+import { AutoScheduleModal } from "./components/AutoScheduleModal";
 import type {
   AcademicYear,
   Program,
@@ -16,26 +16,25 @@ import type {
   StandardPeriod,
   ScheduleWithDetails,
   AdminUser,
-} from './db/schema';
+  TeachingAssistant,
+} from "./db/schema";
 import {
   getAcademicYears,
   getPrograms,
   getSections,
   getProfessors,
+  getTeachingAssistants,
   getRooms,
   getCourses,
   getStandardPeriods,
   getAllSchedulesWithDetails,
   deleteSchedule,
   clearAllSchedules,
-} from './db/scheduleService';
-import {
-  resetDatabaseToEmpty,
-  loadSampleUniversityData,
-} from './db/sqlite';
-import { GraduationCap, Loader2 } from 'lucide-react';
+} from "./db/scheduleService";
+import { resetDatabaseToEmpty } from "./db/sqlite";
+import { GraduationCap, Loader2 } from "lucide-react";
 
-const ADMIN_STORAGE_KEY = 'unischedule_admin_user';
+const ADMIN_STORAGE_KEY = "unischedule_admin_user";
 
 export function App() {
   const [adminUser, setAdminUser] = useState<AdminUser | null>(() => {
@@ -50,33 +49,39 @@ export function App() {
     return null;
   });
 
-  const [currentPage, setCurrentPage] = useState<'TIMETABLE' | 'ADMIN_HUB'>('TIMETABLE');
+  const [currentPage, setCurrentPage] = useState<"TIMETABLE" | "ADMIN_HUB">(
+    "TIMETABLE",
+  );
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [professors, setProfessors] = useState<Professor[]>([]);
+  const [teachingAssistants, setTeachingAssistants] = useState<TeachingAssistant[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [standardPeriods, setStandardPeriods] = useState<StandardPeriod[]>([]);
   const [schedules, setSchedules] = useState<ScheduleWithDetails[]>([]);
 
-  const [selectedYearId, setSelectedYearId] = useState<number | 'ALL'>(1);
-  const [viewMode, setViewMode] = useState<'YEAR' | 'PROGRAM' | 'ROOM' | 'PROFESSOR'>('YEAR');
+  const [selectedYearId, setSelectedYearId] = useState<number | "ALL">(1);
+  const [viewMode, setViewMode] = useState<
+    "YEAR" | "PROGRAM" | "ROOM" | "PROFESSOR"
+  >("YEAR");
 
   // Modals state
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isAutoScheduleModalOpen, setIsAutoScheduleModalOpen] = useState(false);
-  const [editingSchedule, setEditingSchedule] = useState<ScheduleWithDetails | null>(null);
+  const [editingSchedule, setEditingSchedule] =
+    useState<ScheduleWithDetails | null>(null);
   const [dialogSlotProps, setDialogSlotProps] = useState<{
     dayOfWeek?: number;
     periodId?: number;
     yearId?: number;
     sectionId?: number;
     roomId?: number;
-    programId?: number | 'ALL';
+    programId?: number | "ALL";
   }>({});
 
   // Load all data from SQLite
@@ -87,6 +92,7 @@ export function App() {
         fetchedPrograms,
         fetchedSections,
         fetchedProfs,
+        fetchedTeachingAssistants,
         fetchedRooms,
         fetchedCourses,
         fetchedPeriods,
@@ -96,6 +102,7 @@ export function App() {
         getPrograms(),
         getSections(),
         getProfessors(),
+        getTeachingAssistants(),
         getRooms(),
         getCourses(),
         getStandardPeriods(),
@@ -106,16 +113,21 @@ export function App() {
       setPrograms(fetchedPrograms);
       setSections(fetchedSections);
       setProfessors(fetchedProfs);
+      setTeachingAssistants(fetchedTeachingAssistants);
       setRooms(fetchedRooms);
       setCourses(fetchedCourses);
       setStandardPeriods(fetchedPeriods);
       setSchedules(fetchedSchedules);
 
-      if (fetchedYears.length > 0 && selectedYearId === 1 && !fetchedYears.some((y) => y.id === 1)) {
+      if (
+        fetchedYears.length > 0 &&
+        selectedYearId === 1 &&
+        !fetchedYears.some((y) => y.id === 1)
+      ) {
         setSelectedYearId(fetchedYears[0].id);
       }
     } catch (err) {
-      console.error('Error loading data from SQLite:', err);
+      console.error("Error loading data from SQLite:", err);
     } finally {
       setIsLoading(false);
     }
@@ -128,7 +140,7 @@ export function App() {
   // Intercept browser print (Cmd+P / Ctrl+P or File -> Print) to show print modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
         setIsPrintModalOpen(true);
       }
@@ -137,11 +149,11 @@ export function App() {
       setIsPrintModalOpen(true);
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('beforeprint', handleBeforePrint);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("beforeprint", handleBeforePrint);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('beforeprint', handleBeforePrint);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("beforeprint", handleBeforePrint);
     };
   }, []);
 
@@ -154,14 +166,14 @@ export function App() {
   const handleLogout = () => {
     setAdminUser(null);
     localStorage.removeItem(ADMIN_STORAGE_KEY);
-    setCurrentPage('TIMETABLE');
+    setCurrentPage("TIMETABLE");
   };
 
   // Reset database to completely empty state (removes all schedules & sample data)
   const handleResetDb = async () => {
     if (
       window.confirm(
-        'Are you sure you want to reset and clear everything? All schedules, courses, sections, rooms, professors, and programs will be permanently deleted, leaving an empty database.'
+        "Are you sure you want to reset and clear everything? All schedules, courses, sections, rooms, professors, and programs will be permanently deleted, leaving an empty database.",
       )
     ) {
       setIsLoading(true);
@@ -174,7 +186,7 @@ export function App() {
   const handleClearTimetable = async () => {
     if (
       window.confirm(
-        'Clear all scheduled sessions from the timetable? Your faculty members, degree programs, courses, sections, and halls/rooms will NOT be deleted.'
+        "Clear all scheduled sessions from the timetable? Your faculty members, degree programs, courses, sections, and halls/rooms will NOT be deleted.",
       )
     ) {
       setIsLoading(true);
@@ -185,9 +197,12 @@ export function App() {
 
   // Optional: Load sample demo timetable data
   const handleLoadSampleDb = async () => {
-    if (window.confirm('Restore sample university demo curriculum, rooms, and schedule?')) {
+    if (
+      window.confirm(
+        "Restore sample university demo curriculum, rooms, and schedule?",
+      )
+    ) {
       setIsLoading(true);
-      await loadSampleUniversityData();
       await loadData();
     }
   };
@@ -196,13 +211,20 @@ export function App() {
   const handleOpenNewSchedule = (
     dayOfWeek: number = 0,
     periodId?: number,
-    extra?: { roomId?: number; yearId?: number; sectionId?: number; programId?: number | 'ALL' }
+    extra?: {
+      roomId?: number;
+      yearId?: number;
+      sectionId?: number;
+      programId?: number | "ALL";
+    },
   ) => {
     setEditingSchedule(null);
     setDialogSlotProps({
       dayOfWeek,
       periodId,
-      yearId: extra?.yearId || (typeof selectedYearId === 'number' ? selectedYearId : years[0]?.id),
+      yearId:
+        extra?.yearId ||
+        (typeof selectedYearId === "number" ? selectedYearId : years[0]?.id),
       sectionId: extra?.sectionId,
       roomId: extra?.roomId,
       programId: extra?.programId,
@@ -221,7 +243,7 @@ export function App() {
       await deleteSchedule(id);
       loadData();
     } catch (err) {
-      alert('Failed to delete schedule: ' + (err as Error).message);
+      alert("Failed to delete schedule: " + (err as Error).message);
     }
   };
 
@@ -241,7 +263,9 @@ export function App() {
   }
 
   return (
-    <div className={`app-container ${isPrintModalOpen ? 'print-modal-active' : ''}`}>
+    <div
+      className={`app-container ${isPrintModalOpen ? "print-modal-active" : ""}`}
+    >
       {/* Navigation & Header */}
       <Navbar
         years={years}
@@ -251,7 +275,7 @@ export function App() {
         onViewModeChange={setViewMode}
         currentPage={currentPage}
         onNavigate={(p) => {
-          if (p === 'ADMIN_HUB' && !adminUser) {
+          if (p === "ADMIN_HUB" && !adminUser) {
             setIsLoginModalOpen(true);
           } else {
             setCurrentPage(p);
@@ -275,7 +299,7 @@ export function App() {
       />
 
       {/* Main Page: Timetable or Admin Hub Page */}
-      {currentPage === 'TIMETABLE' ? (
+      {currentPage === "TIMETABLE" ? (
         <main className="main-content">
           <TimetableCalendar
             schedules={schedules}
@@ -307,13 +331,14 @@ export function App() {
         <main className="main-content admin-hub-view-container">
           <AdminHubPage
             professors={professors}
+            teachingAssistants={teachingAssistants}
             rooms={rooms}
             courses={courses}
             years={years}
             sections={sections}
             programs={programs}
             onDataChanged={loadData}
-            onBackToTimetable={() => setCurrentPage('TIMETABLE')}
+            onBackToTimetable={() => setCurrentPage("TIMETABLE")}
             onOpenAutoSchedule={() => setIsAutoScheduleModalOpen(true)}
           />
         </main>
@@ -369,7 +394,7 @@ export function App() {
         onClose={() => setIsLoginModalOpen(false)}
         onLoginSuccess={(user) => {
           handleLoginSuccess(user);
-          setCurrentPage('ADMIN_HUB');
+          setCurrentPage("ADMIN_HUB");
         }}
       />
     </div>

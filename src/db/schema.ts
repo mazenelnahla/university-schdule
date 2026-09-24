@@ -41,6 +41,16 @@ export interface Professor {
   availableDays?: number[]; // [0,1,2,3,4] where 0=Sun, 1=Mon, ..., 6=Sat. undefined/empty = available all days
 }
 
+export interface TeachingAssistant {
+  id: number;
+  name: string;
+  department: string;
+  email: string;
+  phone?: string;
+  office?: string;
+  availableDays?: number[];
+}
+
 export type RoomType = 'LECTURE_HALL' | 'COMPUTER_LAB' | 'TUTORIAL_ROOM' | 'WORKSHOP';
 
 export interface Room {

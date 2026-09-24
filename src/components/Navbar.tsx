@@ -139,7 +139,7 @@ export const Navbar: FC<NavbarProps> = ({
                     <span className="sqlite-header-title">SQLite WASM Database</span>
                   </div>
                   <div className="sqlite-header-desc">
-                    In-browser engine with persistent IndexedDB storage
+                    Project folder SQLite storage
                   </div>
                 </div>
 
@@ -155,8 +155,8 @@ export const Navbar: FC<NavbarProps> = ({
                 >
                   <Download size={15} className="item-icon" />
                   <div className="item-text-group">
-                    <span className="item-title">Export Database</span>
-                    <span className="item-desc">Download SQLite file (.sqlite)</span>
+                    <span className="item-title">Save Project Database</span>
+                    <span className="item-desc">Write changes to data/university_schedule.sqlite</span>
                   </div>
                 </button>
 

@@ -1,4 +1,4 @@
-import { getSqliteDb, saveToIndexedDB } from './sqlite';
+import { getSqliteDb, saveToLocalFile } from './sqlite';
 import type {
   AcademicYear,
   Program,
@@ -12,6 +12,7 @@ import type {
   ConflictCheckResult,
   AdminUser,
   TargetGroup,
+  TeachingAssistant,
 } from './schema';
 
 // Helper to convert time "HH:MM" to minutes from midnight
@@ -151,6 +152,21 @@ export async function getProfessors(): Promise<Professor[]> {
     phone: p.phone,
     office: p.office,
     availableDays: parseAvailableDays(p.availableDays),
+  }));
+}
+
+export async function getTeachingAssistants(): Promise<TeachingAssistant[]> {
+  const db = await getSqliteDb();
+  const res = db.exec('SELECT id, name, department, email, phone, office, available_days FROM teaching_assistants ORDER BY name ASC');
+  const rows = rowsToObjects<any>(res);
+  return rows.map((assistant) => ({
+    id: assistant.id,
+    name: assistant.name,
+    department: assistant.department,
+    email: assistant.email,
+    phone: assistant.phone,
+    office: assistant.office,
+    availableDays: parseAvailableDays(assistant.availableDays),
   }));
 }
 
@@ -636,7 +652,7 @@ export async function addSchedule(schedule: Omit<ScheduleItem, 'id'>): Promise<{
   const idRes = db.exec('SELECT last_insert_rowid() AS id');
   const newId = Number(idRes[0].values[0][0]);
 
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   return { success: true, id: newId };
 }
 
@@ -694,21 +710,21 @@ export async function updateSchedule(
   ]);
   stmt.free();
 
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   return { success: true };
 }
 
 export async function deleteSchedule(id: number): Promise<boolean> {
   const db = await getSqliteDb();
   db.run(`DELETE FROM schedules WHERE id = ${id}`);
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   return true;
 }
 
 export async function clearAllSchedules(): Promise<boolean> {
   const db = await getSqliteDb();
   db.run('DELETE FROM schedules;');
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   return true;
 }
 
@@ -723,7 +739,7 @@ export async function addProfessor(prof: Omit<Professor, 'id'>): Promise<number>
   const availDaysJson = prof.availableDays && prof.availableDays.length > 0 ? JSON.stringify(prof.availableDays) : null;
   stmt.run([prof.name, prof.title, prof.department, prof.email, prof.phone || null, prof.office || null, availDaysJson]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   const idRes = db.exec('SELECT last_insert_rowid() AS id');
   return Number(idRes[0].values[0][0]);
 }
@@ -738,13 +754,45 @@ export async function updateProfessor(id: number, prof: Omit<Professor, 'id'>): 
   const availDaysJson = prof.availableDays && prof.availableDays.length > 0 ? JSON.stringify(prof.availableDays) : null;
   stmt.run([prof.name, prof.title, prof.department, prof.email, prof.phone || null, prof.office || null, availDaysJson, id]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 export async function deleteProfessor(id: number): Promise<void> {
   const db = await getSqliteDb();
   db.run(`DELETE FROM professors WHERE id = ${id}`);
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
+}
+
+export async function addTeachingAssistant(assistant: Omit<TeachingAssistant, 'id'>): Promise<number> {
+  const db = await getSqliteDb();
+  const stmt = db.prepare(`
+    INSERT INTO teaching_assistants (name, department, email, phone, office, available_days)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const availableDays = assistant.availableDays?.length ? JSON.stringify(assistant.availableDays) : null;
+  stmt.run([assistant.name, assistant.department, assistant.email, assistant.phone || null, assistant.office || null, availableDays]);
+  stmt.free();
+  await saveToLocalFile(db);
+  return Number(db.exec('SELECT last_insert_rowid() AS id')[0].values[0][0]);
+}
+
+export async function updateTeachingAssistant(id: number, assistant: Omit<TeachingAssistant, 'id'>): Promise<void> {
+  const db = await getSqliteDb();
+  const stmt = db.prepare(`
+    UPDATE teaching_assistants
+    SET name = ?, department = ?, email = ?, phone = ?, office = ?, available_days = ?
+    WHERE id = ?
+  `);
+  const availableDays = assistant.availableDays?.length ? JSON.stringify(assistant.availableDays) : null;
+  stmt.run([assistant.name, assistant.department, assistant.email, assistant.phone || null, assistant.office || null, availableDays, id]);
+  stmt.free();
+  await saveToLocalFile(db);
+}
+
+export async function deleteTeachingAssistant(id: number): Promise<void> {
+  const db = await getSqliteDb();
+  db.run(`DELETE FROM teaching_assistants WHERE id = ${id}`);
+  await saveToLocalFile(db);
 }
 
 // ROOMS
@@ -756,7 +804,7 @@ export async function addRoom(room: Omit<Room, 'id'>): Promise<number> {
   `);
   stmt.run([room.code, room.name, room.type, room.capacity, room.building, room.floor]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   const idRes = db.exec('SELECT last_insert_rowid() AS id');
   return Number(idRes[0].values[0][0]);
 }
@@ -770,13 +818,13 @@ export async function updateRoom(id: number, room: Omit<Room, 'id'>): Promise<vo
   `);
   stmt.run([room.code, room.name, room.type, room.capacity, room.building, room.floor, id]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 export async function deleteRoom(id: number): Promise<void> {
   const db = await getSqliteDb();
   db.run(`DELETE FROM rooms WHERE id = ${id}`);
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 // COURSES
@@ -811,7 +859,7 @@ export async function addCourse(course: Omit<Course, 'id'>): Promise<number> {
     }
   }
 
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   return newId;
 }
 
@@ -846,7 +894,7 @@ export async function updateCourse(id: number, course: Omit<Course, 'id'>): Prom
     }
   }
 
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 export async function updateCourseTargetGroup(id: number, targetGroup: TargetGroup): Promise<void> {
@@ -854,7 +902,7 @@ export async function updateCourseTargetGroup(id: number, targetGroup: TargetGro
   const stmt = db.prepare('UPDATE courses SET target_group = ? WHERE id = ?;');
   stmt.run([targetGroup, id]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 export async function updateCourseHasSections(id: number, hasSections: boolean): Promise<void> {
@@ -862,14 +910,14 @@ export async function updateCourseHasSections(id: number, hasSections: boolean):
   const stmt = db.prepare('UPDATE courses SET has_sections = ? WHERE id = ?;');
   stmt.run([hasSections ? 1 : 0, id]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 export async function deleteCourse(id: number): Promise<void> {
   const db = await getSqliteDb();
   db.run(`DELETE FROM course_dependencies WHERE course_id = ${id} OR prerequisite_id = ${id}`);
   db.run(`DELETE FROM courses WHERE id = ${id}`);
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 // PROGRAMS
@@ -881,7 +929,7 @@ export async function addProgram(prog: Omit<Program, 'id'>): Promise<number> {
   `);
   stmt.run([prog.code.trim().toUpperCase(), prog.name.trim(), prog.department.trim()]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   const idRes = db.exec('SELECT last_insert_rowid() AS id');
   return Number(idRes[0].values[0][0]);
 }
@@ -895,13 +943,13 @@ export async function updateProgram(id: number, prog: Omit<Program, 'id'>): Prom
   `);
   stmt.run([prog.code.trim().toUpperCase(), prog.name.trim(), prog.department.trim(), id]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 export async function deleteProgram(id: number): Promise<void> {
   const db = await getSqliteDb();
   db.run(`DELETE FROM programs WHERE id = ${id}`);
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 // SECTIONS
@@ -913,7 +961,7 @@ export async function addSection(sec: Omit<Section, 'id'>): Promise<number> {
   `);
   stmt.run([sec.yearId, sec.programId ?? null, sec.name, sec.capacity]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
   const idRes = db.exec('SELECT last_insert_rowid() AS id');
   return Number(idRes[0].values[0][0]);
 }
@@ -927,13 +975,13 @@ export async function updateSection(id: number, sec: Omit<Section, 'id'>): Promi
   `);
   stmt.run([sec.yearId, sec.programId ?? null, sec.name, sec.capacity, id]);
   stmt.free();
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 export async function deleteSection(id: number): Promise<void> {
   const db = await getSqliteDb();
   db.run(`DELETE FROM sections WHERE id = ${id}`);
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 // AI CURRICULUM SYNC

@@ -1,4 +1,4 @@
-import { getSqliteDb, saveToIndexedDB } from './sqlite';
+import { getSqliteDb, saveToLocalFile } from './sqlite';
 import {
   getCourses,
   getAcademicYears,
@@ -65,7 +65,7 @@ async function ensureCampusFacilities(): Promise<void> {
       ('ROOM-301', 'Tutorial Classroom 301', 'TUTORIAL_ROOM', 50, 'Building B - Science', 3),
       ('ROOM-302', 'Tutorial Classroom 302', 'TUTORIAL_ROOM', 50, 'Building B - Science', 3);
     `);
-    await saveToIndexedDB(db);
+    await saveToLocalFile(db);
   }
 }
 
@@ -91,7 +91,7 @@ async function ensureFacultyMembers(): Promise<void> {
       ('Eng. Dennis Ritchie', 'TA', 'Basic Sciences', 'd.ritchie@univ.edu', '+1-555-0204', 'Lab Tech 4', '[0,1,4]'),
       ('Eng. Ken Thompson', 'TA', 'Artificial Intelligence', 'k.thompson@univ.edu', '+1-555-0205', 'Lab Tech 5', '[0,2,4]');
     `);
-    await saveToIndexedDB(db);
+    await saveToLocalFile(db);
   }
 }
 
@@ -119,7 +119,7 @@ async function ensureLevelSections(years: AcademicYear[]): Promise<void> {
       }
     }
   }
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 }
 
 /**
@@ -160,7 +160,7 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
     } else {
       db.run(`DELETE FROM schedules WHERE academic_year_id = ${options.academicYearId};`);
     }
-    await saveToIndexedDB(db);
+    await saveToLocalFile(db);
   }
 
   // 5. Fetch fresh data from DB
@@ -528,7 +528,7 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
   }
   insertStmt.free();
 
-  await saveToIndexedDB(db);
+  await saveToLocalFile(db);
 
   // 8. Calculate summary statistics
   const lectureCount = generatedSessions.filter((s) => s.sessionType === 'LECTURE').length;
