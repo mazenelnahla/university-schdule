@@ -9,14 +9,13 @@ import {
   timesOverlap,
   getAllDependentCourseIds,
 } from './scheduleService';
-import type { Professor, Section, AcademicYear } from './schema';
+import type { Professor, AcademicYear } from './schema';
 
 export interface AutoScheduleOptions {
   semester: number; // 1 (Fall) or 2 (Spring)
   academicYearId?: number | 'ALL';
   clearExisting?: boolean; // Default true
 }
-
 export interface AutoScheduleResult {
   success: boolean;
   semester: number;
@@ -48,76 +47,45 @@ interface ScheduledSession {
   notes?: string;
 }
 
-// Ensure campus facilities exist (default lecture halls, computer labs, and tutorial rooms)
-async function ensureCampusFacilities(): Promise<void> {
-  const db = await getSqliteDb();
-  const roomCountRes = db.exec('SELECT COUNT(*) FROM rooms;');
-  const roomCount = Number(roomCountRes[0]?.values[0]?.[0] || 0);
-
-  if (roomCount === 0) {
-    db.run(`
-      INSERT INTO rooms (code, name, type, capacity, building, floor) VALUES
-      ('HALL-A', 'Auditorium Alpha (Main Hall)', 'LECTURE_HALL', 220, 'Building A - Engineering', 1),
-      ('HALL-B', 'Auditorium Beta', 'LECTURE_HALL', 150, 'Building A - Engineering', 2),
-      ('HALL-C', 'Hall Gamma (Science)', 'LECTURE_HALL', 120, 'Building B - Science', 1),
-      ('LAB-101', 'High-Performance Computing Lab', 'COMPUTER_LAB', 45, 'Building C - IT', 1),
-      ('LAB-102', 'Software & AI Development Lab', 'COMPUTER_LAB', 40, 'Building C - IT', 1),
-      ('LAB-201', 'Cybersecurity & Networks Lab', 'COMPUTER_LAB', 38, 'Building C - IT', 2),
-      ('ROOM-301', 'Tutorial Classroom 301', 'TUTORIAL_ROOM', 50, 'Building B - Science', 3),
-      ('ROOM-302', 'Tutorial Classroom 302', 'TUTORIAL_ROOM', 50, 'Building B - Science', 3);
-    `);
-    await saveToLocalFile(db);
-  }
-}
-
-// Ensure faculty members and TAs exist for all curriculum departments
-async function ensureFacultyMembers(): Promise<void> {
-  const db = await getSqliteDb();
-  const profCountRes = db.exec('SELECT COUNT(*) FROM professors;');
-  const profCount = Number(profCountRes[0]?.values[0]?.[0] || 0);
-
-  if (profCount < 6) {
-    db.run(`
-      INSERT OR IGNORE INTO professors (name, title, department, email, phone, office, available_days) VALUES
-      ('Dr. Alan Turing', 'Prof.', 'Computer Science', 'a.turing@univ.edu', '+1-555-0101', 'Hall 301', '[0,2,4]'),
-      ('Dr. Grace Hopper', 'Prof.', 'Software Engineering', 'g.hopper@univ.edu', '+1-555-0102', 'Hall 304', '[1,3]'),
-      ('Dr. Donald Knuth', 'Prof.', 'Basic Sciences', 'd.knuth@univ.edu', '+1-555-0103', 'Hall 205', '[0,1,2]'),
-      ('Dr. Barbara Liskov', 'Prof.', 'Computer Science', 'b.liskov@univ.edu', '+1-555-0104', 'Hall 310', NULL),
-      ('Dr. Claude Shannon', 'Prof.', 'Networks', 'c.shannon@univ.edu', '+1-555-0105', 'Hall 208', '[0,1,3]'),
-      ('Dr. Ada Lovelace', 'Prof.', 'Artificial Intelligence', 'a.lovelace@univ.edu', '+1-555-0106', 'Hall 315', '[1,2,4]'),
-      ('Dr. Richard Feynman', 'Prof.', 'Basic Sciences', 'r.feynman@univ.edu', '+1-555-0107', 'Hall 102', '[0,2,3]'),
-      ('Eng. David Patterson', 'TA', 'Computer Science', 'd.patterson@univ.edu', '+1-555-0201', 'Lab Tech 1', '[0,1,2,3,4]'),
-      ('Eng. Margaret Hamilton', 'TA', 'Software Engineering', 'm.hamilton@univ.edu', '+1-555-0202', 'Lab Tech 2', '[0,2,3]'),
-      ('Eng. Linus Torvalds', 'TA', 'Computer Science', 'l.torvalds@univ.edu', '+1-555-0203', 'Lab Tech 3', '[1,2,4]'),
-      ('Eng. Dennis Ritchie', 'TA', 'Basic Sciences', 'd.ritchie@univ.edu', '+1-555-0204', 'Lab Tech 4', '[0,1,4]'),
-      ('Eng. Ken Thompson', 'TA', 'Artificial Intelligence', 'k.thompson@univ.edu', '+1-555-0205', 'Lab Tech 5', '[0,2,4]');
-    `);
-    await saveToLocalFile(db);
-  }
-}
-
 // Ensure section groups exist for each level
 async function ensureLevelSections(years: AcademicYear[]): Promise<void> {
   const db = await getSqliteDb();
   for (const y of years) {
     const isPrep = y.code === 'YEAR_PREP' || /prep/i.test(y.name);
-    const secRes = db.exec(`SELECT COUNT(*) FROM sections WHERE year_id = ${y.id};`);
-    const count = Number(secRes[0]?.values[0]?.[0] || 0);
+    if (!isPrep) continue;
 
-    if (count === 0) {
-      if (isPrep) {
-        db.run(`
-          INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-          (${y.id}, NULL, 'Group A', 150),
-          (${y.id}, NULL, 'Group B', 150);
-        `);
-      } else {
-        db.run(`
-          INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-          (${y.id}, NULL, 'Section 1', 35),
-          (${y.id}, NULL, 'Section 2', 35);
-        `);
-      }
+    for (const group of ['A', 'B']) {
+      const groupName = `Group ${group}`;
+      const escapedGroupName = groupName.replace(/'/g, "''");
+      db.run(`
+        UPDATE sections
+        SET name = '${escapedGroupName}'
+        WHERE year_id = ${y.id}
+          AND lower(name) = lower('Group ${group} - Section 1')
+          AND NOT EXISTS (
+            SELECT 1 FROM sections
+            WHERE year_id = ${y.id} AND lower(name) = lower('${escapedGroupName}')
+          );
+      `);
+      db.run(`
+        INSERT INTO sections (year_id, program_id, name, capacity)
+        SELECT ${y.id}, NULL, '${escapedGroupName}', 150
+        WHERE NOT EXISTS (
+          SELECT 1 FROM sections
+          WHERE year_id = ${y.id} AND lower(name) = lower('${escapedGroupName}')
+        );
+      `);
+      db.run(`
+        DELETE FROM schedules
+        WHERE section_id IN (
+          SELECT id FROM sections
+          WHERE year_id = ${y.id} AND lower(name) LIKE lower('Group ${group} - Section %')
+        );
+      `);
+      db.run(`
+        DELETE FROM sections
+        WHERE year_id = ${y.id} AND lower(name) LIKE lower('Group ${group} - Section %');
+      `);
     }
   }
   await saveToLocalFile(db);
@@ -131,10 +99,6 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
   const semesterNum = options.semester === 2 ? 2 : 1;
   const semesterLabel = semesterNum === 1 ? 'Fall Semester 2026' : 'Spring Semester 2027';
   const clearExisting = options.clearExisting !== false;
-
-  // 1. Provision foundation assets if missing
-  await ensureCampusFacilities();
-  await ensureFacultyMembers();
 
   const db = await getSqliteDb();
   const allYears = await getAcademicYears();
@@ -195,6 +159,9 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
   const professorsPool = allProfessors.filter((p) => p.title === 'Prof.' || p.title === 'Dr.');
   const taPool = allProfessors.filter((p) => p.title === 'TA' || p.title === 'Eng.');
   const fallbackFaculty = allProfessors[0];
+  if (!fallbackLectureHall || !fallbackFaculty) {
+    throw new Error('Auto-generation requires at least one room and one professor. Add them in Admin Hub before generating a timetable.');
+  }
 
   // Track existing scheduled sessions to prevent clashes with preserved schedules
   const existingRes = db.exec(`
@@ -340,8 +307,6 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
     const yearDayLoad: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
 
     for (const course of yearCourses) {
-      scheduledCourseCodes.push(course.code);
-
       // Determine required room types
       const isLabCourse =
         /programming|code|lab|software|data|database|networks|ai|learning|vision|graphics/i.test(course.name) ||
@@ -409,7 +374,7 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
             // Shared Prep lectures must be created for both groups. If faculty
             // attendance was the only blocker, retry with any conflict-free
             // faculty member so the second group is not silently omitted.
-            if (!lectureScheduled && course.targetGroup === 'ALL') {
+            if (!lectureScheduled) {
               for (const day of DAYS) {
                 if (lectureScheduled) break;
                 for (const period of STANDARD_PERIODS) {
@@ -485,6 +450,39 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
                 break;
               }
               if (!lectureScheduled) {
+                for (const day of DAYS) {
+                  if (lectureScheduled) break;
+                  for (const period of STANDARD_PERIODS) {
+                    if (lectureScheduled) break;
+                    for (const hall of lectureHalls.concat([fallbackLectureHall])) {
+                      for (const prof of professorsPool) {
+                        const candidate: ScheduledSession = {
+                          academicYearId: year.id,
+                          sectionId: null,
+                          courseId: course.id,
+                          courseCode: course.code,
+                          professorId: prof.id,
+                          roomId: hall.id,
+                          dayOfWeek: day,
+                          periodId: period.id,
+                          startTime: period.startTime,
+                          endTime: period.endTime,
+                          sessionType: 'LECTURE',
+                          notes: 'Full Cohort Lecture',
+                        };
+                        if (!hasSlotConflict(candidate, [...committedSessions, ...generatedSessions])) {
+                          generatedSessions.push(candidate);
+                          yearDayLoad[day]++;
+                          lectureScheduled = true;
+                          break;
+                        }
+                      }
+                      if (lectureScheduled) break;
+                    }
+                  }
+                }
+              }
+              if (!lectureScheduled) {
                 conflicts.push(`${course.code} - ${course.name}: could not schedule the whole-cohort lecture without a conflict.`);
               }
             }
@@ -497,11 +495,7 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
       // PART B: SCHEDULE SECTIONS / PRACTICAL LABS
       // -------------------------------------------------------------
       if (course.hasSections !== false) {
-        const targetSections = isPrep
-          ? prepTargetGroups
-          : yearSections.length > 0
-          ? yearSections
-          : [{ id: 0, name: 'Main Section' } as Section];
+          const targetSections = isPrep ? prepTargetGroups : [];
 
         for (const sec of targetSections) {
           let secScheduled = false;
@@ -540,14 +534,52 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
                   secScheduled = true;
                   break;
                 }
-                if (!secScheduled) {
-                  conflicts.push(`${course.code} - ${course.name}: could not schedule ${sec.name} practical/section without a conflict.`);
-                }
               }
               if (secScheduled) break;
             }
           }
+          if (!secScheduled) {
+            const sectionFacultyPool = taPool.length > 0 ? taPool : [fallbackFaculty];
+            for (const day of DAYS) {
+              if (secScheduled) break;
+              for (const period of STANDARD_PERIODS) {
+                if (secScheduled) break;
+                for (const room of sectionRoomPool.concat([defaultSectionRoom])) {
+                  for (const ta of sectionFacultyPool) {
+                    const candidate: ScheduledSession = {
+                      academicYearId: year.id,
+                      sectionId: sec.id > 0 ? sec.id : null,
+                      sectionName: sec.name,
+                      courseId: course.id,
+                      courseCode: course.code,
+                      professorId: ta.id,
+                      roomId: room.id,
+                      dayOfWeek: day,
+                      periodId: period.id,
+                      startTime: period.startTime,
+                      endTime: period.endTime,
+                      sessionType: 'SECTION',
+                      notes: `${sec.name} Practical / Lab`,
+                    };
+                    if (!hasSlotConflict(candidate, [...committedSessions, ...generatedSessions])) {
+                      generatedSessions.push(candidate);
+                      yearDayLoad[day]++;
+                      secScheduled = true;
+                      break;
+                    }
+                  }
+                  if (secScheduled) break;
+                }
+              }
+            }
+          }
+          if (!secScheduled) {
+            conflicts.push(`${course.code} - ${course.name}: could not schedule ${sec.name} practical/section without a conflict.`);
+          }
         }
+      }
+      if (generatedSessions.some((session) => session.courseId === course.id)) {
+        scheduledCourseCodes.push(course.code);
       }
     }
   }
@@ -582,6 +614,20 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
   // 8. Calculate summary statistics
   const lectureCount = generatedSessions.filter((s) => s.sessionType === 'LECTURE').length;
   const sectionCount = generatedSessions.filter((s) => s.sessionType === 'SECTION').length;
+  const prepSessions = generatedSessions.filter((s) => s.academicYearId === 5);
+  const groupACounts = {
+    lectures: prepSessions.filter((s) => s.sectionName && /group\s*a\b/i.test(s.sectionName) && s.sessionType === 'LECTURE').length,
+    sections: prepSessions.filter((s) => s.sectionName && /group\s*a\b/i.test(s.sectionName) && s.sessionType === 'SECTION').length,
+  };
+  const groupBCounts = {
+    lectures: prepSessions.filter((s) => s.sectionName && /group\s*b\b/i.test(s.sectionName) && s.sessionType === 'LECTURE').length,
+    sections: prepSessions.filter((s) => s.sectionName && /group\s*b\b/i.test(s.sectionName) && s.sessionType === 'SECTION').length,
+  };
+  if (groupACounts.lectures !== groupBCounts.lectures || groupACounts.sections !== groupBCounts.sections) {
+    conflicts.push(
+      `Preparatory Year is unbalanced: Group A has ${groupACounts.lectures} lectures and ${groupACounts.sections} sections, while Group B has ${groupBCounts.lectures} lectures and ${groupBCounts.sections} sections.`
+    );
+  }
   const uniqueRooms = new Set(generatedSessions.map((s) => s.roomId)).size;
   const uniqueProfs = new Set(generatedSessions.map((s) => s.professorId)).size;
   const uniqueYears = new Set(generatedSessions.map((s) => s.academicYearId)).size;
