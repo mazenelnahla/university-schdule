@@ -147,12 +147,35 @@ CREATE TABLE IF NOT EXISTS courses (
   FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS teaching_assignments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id INTEGER NOT NULL,
+  professor_id INTEGER,
+  teaching_assistant_id INTEGER,
+  UNIQUE (course_id, professor_id, teaching_assistant_id),
+  CHECK (
+    (professor_id IS NOT NULL AND teaching_assistant_id IS NULL) OR
+    (professor_id IS NULL AND teaching_assistant_id IS NOT NULL)
+  ),
+  FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+  FOREIGN KEY (professor_id) REFERENCES professors(id) ON DELETE CASCADE,
+  FOREIGN KEY (teaching_assistant_id) REFERENCES teaching_assistants(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS course_dependencies (
   course_id INTEGER NOT NULL,
   prerequisite_id INTEGER NOT NULL,
   PRIMARY KEY (course_id, prerequisite_id),
   FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
   FOREIGN KEY (prerequisite_id) REFERENCES courses(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS course_programs (
+  course_id INTEGER NOT NULL,
+  program_id INTEGER NOT NULL,
+  PRIMARY KEY (course_id, program_id),
+  FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+  FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS standard_periods (
@@ -216,6 +239,40 @@ CREATE TABLE IF NOT EXISTS programs (
 );
 `;
 
+const COURSE_PROGRAMS_TABLE_SQL = `
+  CREATE TABLE course_programs (
+    course_id INTEGER NOT NULL,
+    program_id INTEGER NOT NULL,
+    PRIMARY KEY (course_id, program_id),
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+    FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE CASCADE
+  );
+`;
+
+function ensureCourseProgramsTable(db: Database): void {
+  try {
+    db.exec('SELECT course_id, program_id FROM course_programs LIMIT 1;');
+    return;
+  } catch (error) {
+    console.warn('Repairing malformed course_programs schema:', error);
+  }
+
+  try {
+    db.run('DROP TABLE IF EXISTS course_programs;');
+  } catch {
+    db.run(`
+      PRAGMA writable_schema = ON;
+      DELETE FROM sqlite_master
+      WHERE type IN ('table', 'index', 'trigger', 'view')
+        AND (name = 'course_programs' OR tbl_name = 'course_programs');
+      PRAGMA writable_schema = OFF;
+    `);
+    db.run('VACUUM;');
+  }
+
+  db.run(COURSE_PROGRAMS_TABLE_SQL);
+}
+
 // Helper: migrate existing DB schemas if new columns or tables are introduced
 export function migrateExistingDatabase(db: Database) {
   try {
@@ -267,6 +324,23 @@ export function migrateExistingDatabase(db: Database) {
         available_days TEXT
       );
     `);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS teaching_assignments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        course_id INTEGER NOT NULL,
+        professor_id INTEGER,
+        teaching_assistant_id INTEGER,
+        UNIQUE (course_id, professor_id, teaching_assistant_id),
+        CHECK (
+          (professor_id IS NOT NULL AND teaching_assistant_id IS NULL) OR
+          (professor_id IS NULL AND teaching_assistant_id IS NOT NULL)
+        ),
+        FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+        FOREIGN KEY (professor_id) REFERENCES professors(id) ON DELETE CASCADE,
+        FOREIGN KEY (teaching_assistant_id) REFERENCES teaching_assistants(id) ON DELETE CASCADE
+      );
+    `);
+    ensureCourseProgramsTable(db);
 
     // 6. Check if prerequisite_ids column exists in courses table
     const coursePragma = db.exec('PRAGMA table_info(courses);');
@@ -290,6 +364,10 @@ export function migrateExistingDatabase(db: Database) {
     if (!courseCols.includes('program_id')) {
       db.run('ALTER TABLE courses ADD COLUMN program_id INTEGER REFERENCES programs(id) ON DELETE SET NULL;');
     }
+    db.run(`
+      INSERT OR IGNORE INTO course_programs (course_id, program_id)
+      SELECT id, program_id FROM courses WHERE program_id IS NOT NULL;
+    `);
 
     // 8. Check if semester column exists in courses table
     if (!courseCols.includes('semester')) {

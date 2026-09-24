@@ -51,6 +51,17 @@ export interface TeachingAssistant {
   availableDays?: number[];
 }
 
+export interface TeachingAssignment {
+  id: number;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  professorId?: number;
+  professorName?: string;
+  teachingAssistantId?: number;
+  teachingAssistantName?: string;
+}
+
 export type RoomType = 'LECTURE_HALL' | 'COMPUTER_LAB' | 'TUTORIAL_ROOM' | 'WORKSHOP';
 
 export interface Room {
@@ -73,6 +84,7 @@ export interface Course {
   department: string;
   yearId: number;
   programId?: number | null; // null = Common Core / All Programs in this Year
+  programIds?: number[]; // Shared subjects may belong to multiple programs
   programCode?: string;
   programName?: string;
   colorHex?: string;

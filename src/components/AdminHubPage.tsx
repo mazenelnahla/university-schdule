@@ -31,6 +31,7 @@ import type {
   RoomType,
   TargetGroup,
   TeachingAssistant,
+  TeachingAssignment,
 } from '../db/schema';
 import {
   addProfessor,
@@ -52,11 +53,14 @@ import {
   addTeachingAssistant,
   updateTeachingAssistant,
   deleteTeachingAssistant,
+  addTeachingAssignment,
+  deleteTeachingAssignment,
 } from '../db/scheduleService';
 
 interface AdminHubPageProps {
   professors: Professor[];
   teachingAssistants: TeachingAssistant[];
+  teachingAssignments: TeachingAssignment[];
   rooms: Room[];
   courses: Course[];
   years: AcademicYear[];
@@ -70,6 +74,7 @@ interface AdminHubPageProps {
 export const AdminHubPage: FC<AdminHubPageProps> = ({
   professors,
   teachingAssistants,
+  teachingAssignments,
   rooms,
   courses,
   years,
@@ -79,7 +84,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   onBackToTimetable,
   onOpenAutoSchedule,
 }) => {
-  const [activeTab, setActiveTab] = useState<'ROOMS' | 'PROFESSORS' | 'TEACHING_ASSISTANTS' | 'COURSES' | 'SECTIONS' | 'PROGRAMS'>('ROOMS');
+  const [activeTab, setActiveTab] = useState<'ROOMS' | 'PROFESSORS' | 'TEACHING_ASSISTANTS' | 'ASSIGNMENTS' | 'COURSES' | 'SECTIONS' | 'PROGRAMS'>('ROOMS');
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -99,6 +104,9 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   const [taOffice, setTaOffice] = useState('');
   const [taAvailableDays, setTaAvailableDays] = useState<number[]>([]);
   const [editingTaId, setEditingTaId] = useState<number | null>(null);
+  const [assignmentFacultyType, setAssignmentFacultyType] = useState<'PROFESSOR' | 'TA'>('PROFESSOR');
+  const [assignmentFacultyId, setAssignmentFacultyId] = useState<number | ''>('');
+  const [assignmentCourseIds, setAssignmentCourseIds] = useState<number[]>([]);
 
   // Rooms Form State
   const [roomCode, setRoomCode] = useState('');
@@ -114,7 +122,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   const [courseName, setCourseName] = useState('');
   const [courseCredits, setCourseCredits] = useState(3);
   const [courseYearId, setCourseYearId] = useState<number>(years[0]?.id || 1);
-  const [courseProgramId, setCourseProgramId] = useState<number | ''>('');
+  const [courseProgramIds, setCourseProgramIds] = useState<number[]>([]);
   const [courseColor, setCourseColor] = useState('#3b82f6');
   const [coursePrerequisites, setCoursePrerequisites] = useState<number[]>([]);
   const [courseSemester, setCourseSemester] = useState<1 | 2>(1);
@@ -176,7 +184,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     if (courseProgramFilter === 'BASIC_SCIENCES') {
       result = result.filter(isBasicSciencesCourse);
     } else if (courseProgramFilter !== 'ALL') {
-      result = result.filter((c) => c.programId === courseProgramFilter);
+      result = result.filter((c) => c.programIds?.includes(courseProgramFilter) || c.programId === courseProgramFilter);
     }
     if (courseSemesterFilter !== 'ALL') {
       result = result.filter((c) => (c.semester || 1) === courseSemesterFilter);
@@ -232,6 +240,16 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     courseSectionsFilter,
     courseSortBy,
   ]);
+
+  const visibleAssignments = useMemo(() => {
+    if (!searchQuery) return teachingAssignments;
+    const query = searchQuery.toLowerCase();
+    return teachingAssignments.filter((assignment) =>
+      assignment.courseCode.toLowerCase().includes(query) ||
+      assignment.courseName.toLowerCase().includes(query) ||
+      (assignment.professorName || assignment.teachingAssistantName || '').toLowerCase().includes(query)
+    );
+  }, [teachingAssignments, searchQuery]);
 
   const filteredSections = useMemo(() => {
     if (!searchQuery) return sections;
@@ -395,6 +413,52 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     }
   };
 
+  const handleAssignCourses = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!assignmentFacultyId || assignmentCourseIds.length === 0) {
+      showStatus('Select one faculty member and at least one subject.', 'error');
+      return;
+    }
+    try {
+      const existing = new Set(
+        teachingAssignments
+          .filter((assignment) =>
+            assignmentFacultyType === 'PROFESSOR'
+              ? assignment.professorId === assignmentFacultyId
+              : assignment.teachingAssistantId === assignmentFacultyId
+          )
+          .map((assignment) => assignment.courseId)
+      );
+      let added = 0;
+      for (const courseId of assignmentCourseIds) {
+        if (existing.has(courseId)) continue;
+        await addTeachingAssignment({
+          courseId,
+          ...(assignmentFacultyType === 'PROFESSOR'
+            ? { professorId: Number(assignmentFacultyId) }
+            : { teachingAssistantId: Number(assignmentFacultyId) }),
+        });
+        added += 1;
+      }
+      setAssignmentCourseIds([]);
+      showStatus(added ? `${added} subject assignment${added === 1 ? '' : 's'} added.` : 'All selected subjects were already assigned.');
+      onDataChanged();
+    } catch (err) {
+      showStatus((err as Error).message, 'error');
+    }
+  };
+
+  const handleDeleteAssignment = async (id: number) => {
+    if (!window.confirm('Remove this subject assignment?')) return;
+    try {
+      await deleteTeachingAssignment(id);
+      showStatus('Subject assignment removed.');
+      onDataChanged();
+    } catch (err) {
+      showStatus((err as Error).message, 'error');
+    }
+  };
+
   // ROOM HANDLERS
   const handleSaveRoom = async (e: FormEvent) => {
     e.preventDefault();
@@ -455,7 +519,8 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   const handleSaveCourse = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      const progIdToSave = courseProgramId === '' ? null : Number(courseProgramId);
+      const selectedProgramIds = Array.from(new Set(courseProgramIds));
+      const progIdToSave = selectedProgramIds[0] ?? null;
       const chosenProg = progIdToSave ? programs.find((p) => p.id === progIdToSave) : null;
       const deptToSave = chosenProg ? chosenProg.name : 'Common Core';
 
@@ -467,6 +532,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           department: deptToSave,
           yearId: Number(courseYearId),
           programId: progIdToSave,
+          programIds: selectedProgramIds,
           colorHex: courseColor,
           prerequisiteIds: coursePrerequisites.length > 0 ? coursePrerequisites : undefined,
           semester: courseSemester,
@@ -482,6 +548,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           department: deptToSave,
           yearId: Number(courseYearId),
           programId: progIdToSave,
+          programIds: selectedProgramIds,
           colorHex: courseColor,
           prerequisiteIds: coursePrerequisites.length > 0 ? coursePrerequisites : undefined,
           semester: courseSemester,
@@ -493,7 +560,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
       setEditingCourseId(null);
       setCourseCode('');
       setCourseName('');
-      setCourseProgramId('');
+      setCourseProgramIds([]);
       setCoursePrerequisites([]);
       setCourseSemester(1);
       setCourseTargetGroup('ALL');
@@ -510,7 +577,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     setCourseName(c.name);
     setCourseCredits(c.creditHours);
     setCourseYearId(c.yearId);
-    setCourseProgramId(c.programId !== undefined && c.programId !== null ? c.programId : '');
+    setCourseProgramIds(c.programIds?.length ? c.programIds : (c.programId ? [c.programId] : []));
     setCourseColor(c.colorHex || '#3b82f6');
     setCoursePrerequisites(c.prerequisiteIds || []);
     setCourseSemester((c.semester === 2 ? 2 : 1) as 1 | 2);
@@ -701,6 +768,13 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           >
             <Users size={17} />
             <span>Teaching Assistants ({teachingAssistants.length})</span>
+          </button>
+          <button
+            className={`admin-main-tab ${activeTab === 'ASSIGNMENTS' ? 'active' : ''}`}
+            onClick={() => setActiveTab('ASSIGNMENTS')}
+          >
+            <BookOpen size={17} />
+            <span>Subject Assignments ({teachingAssignments.length})</span>
           </button>
           <button
             className={`admin-main-tab ${activeTab === 'COURSES' ? 'active' : ''}`}
@@ -1294,7 +1368,115 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           </div>
         )}
 
-        {/* 4. COURSES MANAGEMENT */}
+        {/* 4. SUBJECT ASSIGNMENTS */}
+        {activeTab === 'ASSIGNMENTS' && (
+          <div className="admin-grid-layout">
+            <div className="admin-panel card-glow">
+              <div className="panel-header">
+                <div className="panel-title-group">
+                  <BookOpen size={18} className="text-emerald" />
+                  <h2 className="panel-title-text">Assign Multiple Subjects</h2>
+                </div>
+                <span className="panel-badge">Many-to-Many</span>
+              </div>
+              <form onSubmit={handleAssignCourses} className="admin-panel-form">
+                <div className="form-group">
+                  <label className="form-label">Faculty Type</label>
+                  <select
+                    className="form-select"
+                    value={assignmentFacultyType}
+                    onChange={(e) => {
+                      setAssignmentFacultyType(e.target.value as 'PROFESSOR' | 'TA');
+                      setAssignmentFacultyId('');
+                    }}
+                  >
+                    <option value="PROFESSOR">Professor</option>
+                    <option value="TA">Teaching Assistant</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Faculty Member *</label>
+                  <select
+                    className="form-select"
+                    value={assignmentFacultyId}
+                    onChange={(e) => setAssignmentFacultyId(e.target.value ? Number(e.target.value) : '')}
+                    required
+                  >
+                    <option value="">-- Select Faculty Member --</option>
+                    {(assignmentFacultyType === 'PROFESSOR' ? professors : teachingAssistants).map((member) => (
+                      <option key={member.id} value={member.id}>{member.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <div className="flex-between-center mb-1">
+                    <label className="form-label mb-0">Subjects * <span className="text-muted">(select one or more)</span></label>
+                    <span className="panel-badge">{assignmentCourseIds.length} selected</span>
+                  </div>
+                  <div className="assignment-course-grid">
+                    {courses.map((course) => (
+                      <button
+                        key={course.id}
+                        type="button"
+                        className={`assignment-course-card ${assignmentCourseIds.includes(course.id) ? 'selected' : ''}`}
+                        onClick={() => setAssignmentCourseIds((current) =>
+                          current.includes(course.id)
+                            ? current.filter((id) => id !== course.id)
+                            : [...current, course.id]
+                        )}
+                      >
+                        <span className="assignment-course-check">
+                          {assignmentCourseIds.includes(course.id) ? <Check size={13} /> : <Plus size={13} />}
+                        </span>
+                        <span className="assignment-course-content">
+                          <strong>{course.code}</strong>
+                          <span>{course.name}</span>
+                        </span>
+                        <span className="assignment-course-semester">S{course.semester || 1}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button type="submit" className="admin-submit-btn">
+                  <Plus size={16} />
+                  <span>Assign Selected Subjects</span>
+                </button>
+              </form>
+            </div>
+            <div className="admin-panel">
+              <div className="panel-header">
+                <div className="panel-title-group">
+                  <Filter size={16} className="text-secondary" />
+                  <h2 className="panel-title-text">Current Subject Assignments ({visibleAssignments.length})</h2>
+                </div>
+              </div>
+              <div className="admin-page-list">
+                {visibleAssignments.length === 0 ? (
+                  <div className="admin-empty-state"><p>No subject assignments registered yet.</p></div>
+                ) : visibleAssignments.map((assignment) => (
+                  <div key={assignment.id} className="admin-entry-card">
+                    <div className="entry-details">
+                      <div className="entry-title-line">
+                        <span className="title-pill">{assignment.professorName ? 'Professor' : 'TA'}</span>
+                        <span className="entry-name">{assignment.professorName || assignment.teachingAssistantName}</span>
+                      </div>
+                      <div className="entry-sub-line">
+                        <span>{assignment.courseCode} — {assignment.courseName}</span>
+                      </div>
+                    </div>
+                    <div className="entry-buttons">
+                      <button className="icon-btn danger" onClick={() => handleDeleteAssignment(assignment.id)} title="Remove assignment">
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 5. COURSES MANAGEMENT */}
         {activeTab === 'COURSES' && (
           <div className="admin-grid-layout">
             <div className="admin-panel card-glow">
@@ -1378,18 +1560,43 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                 <div className="form-row-dept-color">
                   <div className="form-group">
                     <label className="form-label">Academic Department (Program)</label>
-                    <select
-                      className="form-select"
-                      value={courseProgramId}
-                      onChange={(e) => setCourseProgramId(e.target.value === '' ? '' : Number(e.target.value))}
-                    >
-                      <option value="">-- Basic Sciences / General Prep (Common Foundation) --</option>
-                      {programs.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.code} - {p.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="program-selector-heading">
+                      <span className="form-help-text">Choose every program that uses this subject. The subject code is stored only once.</span>
+                      <span className="selection-count">{courseProgramIds.length ? `${courseProgramIds.length} selected` : 'Common subject'}</span>
+                    </div>
+                    <div className="subject-card-grid shared-program-grid modern-program-selector">
+                      <button
+                        type="button"
+                        className={`subject-select-card common-program-card ${courseProgramIds.length === 0 ? 'selected' : ''}`}
+                        onClick={() => {
+                          setCourseProgramIds([]);
+                        }}
+                      >
+                        <span className="subject-select-icon"><Layers size={14} /></span>
+                        <span><strong>Common</strong><small>Basic Sciences / All Programs</small></span>
+                        {courseProgramIds.length === 0 && <Check size={15} className="program-selected-mark" />}
+                      </button>
+                      {programs.map((program) => {
+                        const selected = courseProgramIds.includes(program.id);
+                        return (
+                          <button
+                            key={program.id}
+                            type="button"
+                            className={`subject-select-card ${selected ? 'selected' : ''}`}
+                            onClick={() => {
+                              const nextIds = selected
+                                ? courseProgramIds.filter((id) => id !== program.id)
+                                : [...courseProgramIds, program.id];
+                              setCourseProgramIds(nextIds);
+                            }}
+                          >
+                            <span className="subject-select-icon">{selected ? <Check size={14} /> : <Plus size={14} />}</span>
+                            <span><strong>{program.code}</strong><small>{program.name}</small></span>
+                            {selected && <Check size={15} className="program-selected-mark" />}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Color</label>
@@ -1521,7 +1728,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                         setEditingCourseId(null);
                         setCourseCode('');
                         setCourseName('');
-                        setCourseProgramId('');
+                        setCourseProgramIds([]);
                         setCoursePrerequisites([]);
                         setCourseSemester(1);
                         setCourseTargetGroup('ALL');
@@ -1594,7 +1801,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                         Basic Sciences (Prep) ({courses.filter(isBasicSciencesCourse).length})
                       </button>
                       {programs.map((prog) => {
-                        const count = courses.filter((c) => c.programId === prog.id).length;
+                                        const count = courses.filter((c) => c.programIds?.includes(prog.id) || c.programId === prog.id).length;
                         return (
                           <button
                             key={prog.id}
@@ -1745,6 +1952,11 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                                 Basic Sciences (Prep)
                               </span>
                             )}
+                            {(c.programIds?.length || 0) > 1 && (
+                              <span className="code-pill subtle" title="This subject is shared across multiple programs">
+                                Shared: {c.programIds!.map((id) => programs.find((p) => p.id === id)?.code).filter(Boolean).join(', ')}
+                              </span>
+                            )}
                             {c.targetGroup === 'GROUP_A' && (
                               <span className="code-pill highlight-group-a" title="Prep Group A Only in this semester">
                                 Group A Only
@@ -1876,7 +2088,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                 ) : (
                   filteredPrograms.map((p) => {
                     const progSecs = sections.filter((s) => s.programId === p.id);
-                    const progCourses = courses.filter((c) => c.programId === p.id);
+                    const progCourses = courses.filter((c) => c.programIds?.includes(p.id) || c.programId === p.id);
                     return (
                       <div key={p.id} className="admin-entry-card">
                         <div className="entry-details">

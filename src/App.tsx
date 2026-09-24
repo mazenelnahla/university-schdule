@@ -17,6 +17,7 @@ import type {
   ScheduleWithDetails,
   AdminUser,
   TeachingAssistant,
+  TeachingAssignment,
 } from "./db/schema";
 import {
   getAcademicYears,
@@ -24,6 +25,7 @@ import {
   getSections,
   getProfessors,
   getTeachingAssistants,
+  getTeachingAssignments,
   getRooms,
   getCourses,
   getStandardPeriods,
@@ -58,6 +60,7 @@ export function App() {
   const [sections, setSections] = useState<Section[]>([]);
   const [professors, setProfessors] = useState<Professor[]>([]);
   const [teachingAssistants, setTeachingAssistants] = useState<TeachingAssistant[]>([]);
+  const [teachingAssignments, setTeachingAssignments] = useState<TeachingAssignment[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [standardPeriods, setStandardPeriods] = useState<StandardPeriod[]>([]);
@@ -93,6 +96,7 @@ export function App() {
         fetchedSections,
         fetchedProfs,
         fetchedTeachingAssistants,
+        fetchedTeachingAssignments,
         fetchedRooms,
         fetchedCourses,
         fetchedPeriods,
@@ -103,6 +107,7 @@ export function App() {
         getSections(),
         getProfessors(),
         getTeachingAssistants(),
+        getTeachingAssignments(),
         getRooms(),
         getCourses(),
         getStandardPeriods(),
@@ -114,6 +119,7 @@ export function App() {
       setSections(fetchedSections);
       setProfessors(fetchedProfs);
       setTeachingAssistants(fetchedTeachingAssistants);
+      setTeachingAssignments(fetchedTeachingAssignments);
       setRooms(fetchedRooms);
       setCourses(fetchedCourses);
       setStandardPeriods(fetchedPeriods);
@@ -332,6 +338,7 @@ export function App() {
           <AdminHubPage
             professors={professors}
             teachingAssistants={teachingAssistants}
+            teachingAssignments={teachingAssignments}
             rooms={rooms}
             courses={courses}
             years={years}

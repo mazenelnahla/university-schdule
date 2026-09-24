@@ -13,6 +13,7 @@ import type {
   AdminUser,
   TargetGroup,
   TeachingAssistant,
+  TeachingAssignment,
 } from './schema';
 
 // Helper to convert time "HH:MM" to minutes from midnight
@@ -170,6 +171,21 @@ export async function getTeachingAssistants(): Promise<TeachingAssistant[]> {
   }));
 }
 
+export async function getTeachingAssignments(): Promise<TeachingAssignment[]> {
+  const db = await getSqliteDb();
+  const result = db.exec(`
+    SELECT ta.id, ta.course_id, c.code AS course_code, c.name AS course_name,
+      ta.professor_id, p.name AS professor_name,
+      ta.teaching_assistant_id, a.name AS teaching_assistant_name
+    FROM teaching_assignments ta
+    JOIN courses c ON c.id = ta.course_id
+    LEFT JOIN professors p ON p.id = ta.professor_id
+    LEFT JOIN teaching_assistants a ON a.id = ta.teaching_assistant_id
+    ORDER BY c.code, COALESCE(p.name, a.name)
+  `);
+  return rowsToObjects<TeachingAssignment>(result);
+}
+
 export async function getRooms(): Promise<Room[]> {
   const db = await getSqliteDb();
   const res = db.exec('SELECT id, code, name, type, capacity, building, floor FROM rooms ORDER BY code ASC');
@@ -202,7 +218,7 @@ export async function getCourses(yearId?: number, programId?: number | null): Pr
     whereClauses.push(`c.year_id = ${yearId}`);
   }
   if (programId !== undefined && programId !== null) {
-    whereClauses.push(`(c.program_id = ${programId} OR c.program_id IS NULL)`);
+    whereClauses.push(`(EXISTS (SELECT 1 FROM course_programs cp_filter WHERE cp_filter.course_id = c.id AND cp_filter.program_id = ${programId}) OR c.program_id IS NULL)`);
   }
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
   const sql = `
@@ -214,6 +230,7 @@ export async function getCourses(yearId?: number, programId?: number | null): Pr
       c.department, 
       c.year_id, 
       c.program_id,
+      GROUP_CONCAT(DISTINCT cp.program_id) AS program_ids,
       p.code AS program_code,
       p.name AS program_name,
       c.color_hex, 
@@ -223,10 +240,11 @@ export async function getCourses(yearId?: number, programId?: number | null): Pr
       c.has_sections
     FROM courses c
     LEFT JOIN programs p ON c.program_id = p.id
+    LEFT JOIN course_programs cp ON cp.course_id = c.id
     ${whereSql}
     ORDER BY c.code ASC
   `;
-  const res = db.exec(sql);
+  const res = db.exec(`${sql.replace('ORDER BY c.code ASC', 'GROUP BY c.id ORDER BY c.code ASC')}`);
   const rows = rowsToObjects<any>(res);
   return rows.map((c) => ({
     id: c.id,
@@ -238,6 +256,7 @@ export async function getCourses(yearId?: number, programId?: number | null): Pr
     programId: c.programId ?? null,
     programCode: c.programCode ?? undefined,
     programName: c.programName ?? undefined,
+    programIds: c.programIds ? String(c.programIds).split(',').map(Number) : c.programId ? [Number(c.programId)] : [],
     colorHex: c.colorHex,
     prerequisiteIds: parsePrerequisiteIds(c.prerequisiteIds),
     semester: c.semester !== undefined && c.semester !== null ? Number(c.semester) : 1,
@@ -332,7 +351,7 @@ export async function getAllSchedulesWithDetails(filter?: {
     whereClauses.push(`(s.section_id = ${filter.sectionId} OR s.section_id IS NULL)`);
   }
   if (filter?.programId !== undefined && filter.programId !== null) {
-    whereClauses.push(`(sec.program_id = ${filter.programId} OR (s.section_id IS NULL AND (c.program_id = ${filter.programId} OR c.program_id IS NULL)))`);
+    whereClauses.push(`(sec.program_id = ${filter.programId} OR (s.section_id IS NULL AND (EXISTS (SELECT 1 FROM course_programs cp_filter WHERE cp_filter.course_id = c.id AND cp_filter.program_id = ${filter.programId}) OR c.program_id IS NULL)))`);
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -795,6 +814,32 @@ export async function deleteTeachingAssistant(id: number): Promise<void> {
   await saveToLocalFile(db);
 }
 
+export async function addTeachingAssignment(
+  assignment: Pick<TeachingAssignment, 'courseId' | 'professorId' | 'teachingAssistantId'>
+): Promise<number> {
+  if (!assignment.professorId && !assignment.teachingAssistantId) {
+    throw new Error('Select a professor or teaching assistant.');
+  }
+  const db = await getSqliteDb();
+  const stmt = db.prepare(`
+    INSERT INTO teaching_assignments (course_id, professor_id, teaching_assistant_id)
+    VALUES (?, ?, ?)
+  `);
+  try {
+    stmt.run([assignment.courseId, assignment.professorId || null, assignment.teachingAssistantId || null]);
+  } finally {
+    stmt.free();
+  }
+  await saveToLocalFile(db);
+  return Number(db.exec('SELECT last_insert_rowid() AS id')[0].values[0][0]);
+}
+
+export async function deleteTeachingAssignment(id: number): Promise<void> {
+  const db = await getSqliteDb();
+  db.run(`DELETE FROM teaching_assignments WHERE id = ${id}`);
+  await saveToLocalFile(db);
+}
+
 // ROOMS
 export async function addRoom(room: Omit<Room, 'id'>): Promise<number> {
   const db = await getSqliteDb();
@@ -830,6 +875,16 @@ export async function deleteRoom(id: number): Promise<void> {
 // COURSES
 export async function addCourse(course: Omit<Course, 'id'>): Promise<number> {
   const db = await getSqliteDb();
+  const existing = db.exec(`SELECT id FROM courses WHERE code = '${course.code.replace(/'/g, "''")}'`);
+  if (existing[0]?.values.length) {
+    const existingId = Number(existing[0].values[0][0]);
+    const programIds = course.programIds?.length ? course.programIds : course.programId ? [course.programId] : [];
+    for (const programId of programIds) {
+      db.run(`INSERT OR IGNORE INTO course_programs (course_id, program_id) VALUES (${existingId}, ${programId})`);
+    }
+    await saveToLocalFile(db);
+    return existingId;
+  }
   const stmt = db.prepare(`
     INSERT INTO courses (code, name, credit_hours, department, year_id, program_id, color_hex, prerequisite_ids, semester, target_group, has_sections)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -852,6 +907,11 @@ export async function addCourse(course: Omit<Course, 'id'>): Promise<number> {
 
   const idRes = db.exec('SELECT last_insert_rowid() AS id');
   const newId = Number(idRes[0].values[0][0]);
+
+  const programIds = course.programIds?.length ? course.programIds : course.programId ? [course.programId] : [];
+  for (const programId of programIds) {
+    db.run(`INSERT OR IGNORE INTO course_programs (course_id, program_id) VALUES (${newId}, ${programId})`);
+  }
 
   if (course.prerequisiteIds && course.prerequisiteIds.length > 0) {
     for (const pid of course.prerequisiteIds) {
@@ -886,6 +946,12 @@ export async function updateCourse(id: number, course: Omit<Course, 'id'>): Prom
     id,
   ]);
   stmt.free();
+
+  db.run(`DELETE FROM course_programs WHERE course_id = ${id}`);
+  const programIds = course.programIds?.length ? course.programIds : course.programId ? [course.programId] : [];
+  for (const programId of programIds) {
+    db.run(`INSERT OR IGNORE INTO course_programs (course_id, program_id) VALUES (${id}, ${programId})`);
+  }
 
   db.run(`DELETE FROM course_dependencies WHERE course_id = ${id}`);
   if (course.prerequisiteIds && course.prerequisiteIds.length > 0) {
