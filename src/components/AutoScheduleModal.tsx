@@ -134,10 +134,14 @@ export const AutoScheduleModal: FC<AutoScheduleModalProps> = ({
           {generationResult ? (
             /* SUCCESS STATE */
             <div className="auto-gen-success-card">
-              <div className="success-icon-badge">
-                <CheckCircle size={44} className="text-emerald-400" />
+              <div className={`success-icon-badge ${generationResult.conflicts.length > 0 ? 'conflict-icon-badge' : ''}`}>
+              {generationResult.conflicts.length > 0
+                ? <AlertCircle size={44} className="text-amber-400" />
+                : <CheckCircle size={44} className="text-emerald-400" />}
               </div>
-              <h3 className="success-title">Timetable Generated Successfully!</h3>
+              <h3 className="success-title">
+                {generationResult.conflicts.length > 0 ? 'Timetable Generated With Conflicts' : 'Timetable Generated Successfully!'}
+              </h3>
               <p className="success-desc">
                 {generationResult.message}
               </p>
@@ -165,9 +169,23 @@ export const AutoScheduleModal: FC<AutoScheduleModalProps> = ({
                 </div>
                 <div className="stat-pill">
                   <span className="stat-label">Conflicts:</span>
-                  <span className="stat-val text-emerald-400 font-bold">0 (Clean)</span>
+                  <span className={`stat-val font-bold ${generationResult.conflicts.length > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {generationResult.conflicts.length > 0 ? generationResult.conflicts.length : '0 (Clean)'}
+                  </span>
                 </div>
               </div>
+
+              {generationResult.conflicts.length > 0 && (
+                <div className="alert-banner alert-warning auto-generation-conflicts">
+                  <AlertCircle size={18} />
+                  <div>
+                    <strong>Placement conflicts detected</strong>
+                    <ul>
+                      {generationResult.conflicts.map((conflict) => <li key={conflict}>{conflict}</li>)}
+                    </ul>
+                  </div>
+                </div>
+              )}
 
               <div className="success-action-bar">
                 <button

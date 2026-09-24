@@ -155,6 +155,8 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     c.department === 'Basic Sciences' ||
     c.yearId === 5 ||
     (c.code && c.code.startsWith('BSC'));
+  const isPreparatoryYear = (yearId: number) =>
+    yearId === 5 || /prep/i.test(years.find((year) => year.id === yearId)?.name || '');
 
   // Filtered lists
   const filteredRooms = useMemo(() => {
@@ -521,6 +523,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     try {
       const selectedProgramIds = Array.from(new Set(courseProgramIds));
       const progIdToSave = selectedProgramIds[0] ?? null;
+      const targetGroupToSave = isPreparatoryYear(Number(courseYearId)) ? courseTargetGroup : 'ALL';
       const chosenProg = progIdToSave ? programs.find((p) => p.id === progIdToSave) : null;
       const deptToSave = chosenProg ? chosenProg.name : 'Common Core';
 
@@ -536,7 +539,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           colorHex: courseColor,
           prerequisiteIds: coursePrerequisites.length > 0 ? coursePrerequisites : undefined,
           semester: courseSemester,
-          targetGroup: courseTargetGroup,
+          targetGroup: targetGroupToSave,
           hasSections: courseHasSections,
         });
         showStatus('Course updated successfully!');
@@ -552,7 +555,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           colorHex: courseColor,
           prerequisiteIds: coursePrerequisites.length > 0 ? coursePrerequisites : undefined,
           semester: courseSemester,
-          targetGroup: courseTargetGroup,
+          targetGroup: targetGroupToSave,
           hasSections: courseHasSections,
         });
         showStatus('Course added successfully!');
@@ -581,11 +584,12 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     setCourseColor(c.colorHex || '#3b82f6');
     setCoursePrerequisites(c.prerequisiteIds || []);
     setCourseSemester((c.semester === 2 ? 2 : 1) as 1 | 2);
-    setCourseTargetGroup(c.targetGroup || 'ALL');
+    setCourseTargetGroup(isPreparatoryYear(c.yearId) ? (c.targetGroup || 'ALL') : 'ALL');
     setCourseHasSections(c.hasSections !== false);
   };
 
   const handleQuickToggleTargetGroup = async (c: Course) => {
+    if (!isPreparatoryYear(c.yearId)) return;
     try {
       const current = c.targetGroup || 'ALL';
       const nextGroup: TargetGroup = current === 'ALL' ? 'GROUP_A' : current === 'GROUP_A' ? 'GROUP_B' : 'ALL';
@@ -1625,7 +1629,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                   </select>
                 </div>
 
-                <div className="form-group">
+                {isPreparatoryYear(Number(courseYearId)) && <div className="form-group">
                   <label className="form-label flex-between-center">
                     <span>Cohort / Group Assignment</span>
                     <span className="text-xs text-muted">Prep Year Group A / B</span>
@@ -1639,7 +1643,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                     <option value="GROUP_A">Group A Only (Prep Cohort A)</option>
                     <option value="GROUP_B">Group B Only (Prep Cohort B)</option>
                   </select>
-                </div>
+                </div>}
 
                 {!courseHasSections && (
                   <div className="target-group-callout text-xs" style={{ borderColor: '#f59e0b', background: 'rgba(245, 158, 11, 0.08)' }}>
@@ -1647,7 +1651,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                   </div>
                 )}
 
-                {courseTargetGroup !== 'ALL' && (
+                {isPreparatoryYear(Number(courseYearId)) && courseTargetGroup !== 'ALL' && (
                   <div className="target-group-callout text-xs">
                     💡 <strong>Cohort Alternation Active:</strong> This course will be scheduled for{' '}
                     <strong className={courseTargetGroup === 'GROUP_A' ? 'text-emerald' : 'text-purple'}>
@@ -1817,7 +1821,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                   </div>
 
                   <div className="filter-chip-row multi-filter-row">
-                    <div className="filter-subgroup">
+                    <div className="filter-subgroup prep-cohort-filter">
                       <span className="filter-chip-label">Semester:</span>
                       <button
                         type="button"
@@ -1842,7 +1846,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                       </button>
                     </div>
 
-                    <div className="filter-subgroup">
+                    {courses.some((course) => isPreparatoryYear(course.yearId)) && <div className="filter-subgroup">
                       <span className="filter-chip-label">Cohort:</span>
                       <button
                         type="button"
@@ -1865,7 +1869,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                       >
                         Group B
                       </button>
-                    </div>
+                    </div>}
 
                     <div className="filter-subgroup">
                       <span className="filter-chip-label">Sections:</span>
@@ -1957,17 +1961,17 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                                 Shared: {c.programIds!.map((id) => programs.find((p) => p.id === id)?.code).filter(Boolean).join(', ')}
                               </span>
                             )}
-                            {c.targetGroup === 'GROUP_A' && (
+                            {isPreparatoryYear(c.yearId) && c.targetGroup === 'GROUP_A' && (
                               <span className="code-pill highlight-group-a" title="Prep Group A Only in this semester">
                                 Group A Only
                               </span>
                             )}
-                            {c.targetGroup === 'GROUP_B' && (
+                            {isPreparatoryYear(c.yearId) && c.targetGroup === 'GROUP_B' && (
                               <span className="code-pill highlight-group-b" title="Prep Group B Only in this semester">
                                 Group B Only
                               </span>
                             )}
-                            {(c.targetGroup === 'ALL' || !c.targetGroup) && (
+                            {isPreparatoryYear(c.yearId) && (c.targetGroup === 'ALL' || !c.targetGroup) && (
                               <span className="code-pill subtle" title="Assigned to Both Groups (A & B)">
                                 Group A & B
                               </span>
@@ -1996,13 +2000,13 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                           )}
                         </div>
                         <div className="entry-buttons">
-                          <button
+                          {isPreparatoryYear(c.yearId) && <button
                             className={`icon-btn group-toggle-btn ${c.hasSections === false ? 'active-group-b' : ''}`}
                             onClick={() => handleQuickToggleHasSections(c)}
                             title={`Sections: ${c.hasSections === false ? 'Lecture Only (No Sections)' : 'Has Sections & Labs'}. Click to toggle.`}
                           >
                             <Layers size={15} />
-                          </button>
+                          </button>}
                           <button
                             className={`icon-btn group-toggle-btn ${c.targetGroup === 'GROUP_A' ? 'active-group-a' : c.targetGroup === 'GROUP_B' ? 'active-group-b' : ''}`}
                             onClick={() => handleQuickToggleTargetGroup(c)}

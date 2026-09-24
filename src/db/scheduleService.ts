@@ -260,7 +260,7 @@ export async function getCourses(yearId?: number, programId?: number | null): Pr
     colorHex: c.colorHex,
     prerequisiteIds: parsePrerequisiteIds(c.prerequisiteIds),
     semester: c.semester !== undefined && c.semester !== null ? Number(c.semester) : 1,
-    targetGroup: (c.targetGroup || c.target_group || 'ALL') as TargetGroup,
+    targetGroup: Number(c.yearId) === 5 ? (c.targetGroup || c.target_group || 'ALL') as TargetGroup : 'ALL',
     hasSections: c.hasSections !== undefined ? Boolean(Number(c.hasSections)) : (c.has_sections !== undefined ? Boolean(Number(c.has_sections)) : true),
   }));
 }
@@ -377,6 +377,7 @@ export async function getAllSchedulesWithDetails(filter?: {
       prog.name AS program_name,
       prog.code AS program_code,
       c.program_id AS course_program_id,
+      GROUP_CONCAT(DISTINCT cp.program_id) AS course_program_ids,
       cprog.code AS course_program_code,
       cprog.name AS course_program_name,
       c.code AS course_code,
@@ -397,14 +398,20 @@ export async function getAllSchedulesWithDetails(filter?: {
     LEFT JOIN programs prog ON sec.program_id = prog.id
     JOIN courses c ON s.course_id = c.id
     LEFT JOIN programs cprog ON c.program_id = cprog.id
+    LEFT JOIN course_programs cp ON cp.course_id = c.id
     JOIN professors p ON s.professor_id = p.id
     JOIN rooms r ON s.room_id = r.id
     ${whereSql}
     ORDER BY s.day_of_week ASC, s.start_time ASC
   `;
 
-  const res = db.exec(sql);
-  return rowsToObjects<ScheduleWithDetails>(res);
+  const res = db.exec(`${sql.replace('ORDER BY s.day_of_week ASC', 'GROUP BY s.id ORDER BY s.day_of_week ASC')}`);
+  return rowsToObjects<any>(res).map((row) => ({
+    ...row,
+    courseProgramIds: row.courseProgramIds
+      ? String(row.courseProgramIds).split(',').map(Number)
+      : row.courseProgramId ? [Number(row.courseProgramId)] : [],
+  }));
 }
 
 // ---------------------- CONFLICT ENGINE ----------------------
@@ -875,6 +882,7 @@ export async function deleteRoom(id: number): Promise<void> {
 // COURSES
 export async function addCourse(course: Omit<Course, 'id'>): Promise<number> {
   const db = await getSqliteDb();
+  const targetGroup = course.yearId === 5 ? course.targetGroup || 'ALL' : 'ALL';
   const existing = db.exec(`SELECT id FROM courses WHERE code = '${course.code.replace(/'/g, "''")}'`);
   if (existing[0]?.values.length) {
     const existingId = Number(existing[0].values[0][0]);
@@ -900,7 +908,7 @@ export async function addCourse(course: Omit<Course, 'id'>): Promise<number> {
     course.colorHex || '#3b82f6',
     prereqsJson,
     course.semester ?? 1,
-    course.targetGroup || 'ALL',
+    targetGroup,
     course.hasSections !== false ? 1 : 0,
   ]);
   stmt.free();
@@ -925,6 +933,7 @@ export async function addCourse(course: Omit<Course, 'id'>): Promise<number> {
 
 export async function updateCourse(id: number, course: Omit<Course, 'id'>): Promise<void> {
   const db = await getSqliteDb();
+  const targetGroup = course.yearId === 5 ? course.targetGroup || 'ALL' : 'ALL';
   const stmt = db.prepare(`
     UPDATE courses SET
       code = ?, name = ?, credit_hours = ?, department = ?, year_id = ?, program_id = ?, color_hex = ?, prerequisite_ids = ?, semester = ?, target_group = ?, has_sections = ?
@@ -941,7 +950,7 @@ export async function updateCourse(id: number, course: Omit<Course, 'id'>): Prom
     course.colorHex || '#3b82f6',
     prereqsJson,
     course.semester ?? 1,
-    course.targetGroup || 'ALL',
+    targetGroup,
     course.hasSections !== false ? 1 : 0,
     id,
   ]);
@@ -965,6 +974,8 @@ export async function updateCourse(id: number, course: Omit<Course, 'id'>): Prom
 
 export async function updateCourseTargetGroup(id: number, targetGroup: TargetGroup): Promise<void> {
   const db = await getSqliteDb();
+  const course = db.exec(`SELECT year_id FROM courses WHERE id = ${id}`);
+  if (Number(course[0]?.values[0]?.[0]) !== 5) return;
   const stmt = db.prepare('UPDATE courses SET target_group = ? WHERE id = ?;');
   stmt.run([targetGroup, id]);
   stmt.free();

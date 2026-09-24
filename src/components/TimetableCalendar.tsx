@@ -87,7 +87,10 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
   if (prevYearId !== selectedYearId) {
     setPrevYearId(selectedYearId);
     setSelectedSectionFilter('ALL');
+    setSelectedProgramFilter('ALL');
   }
+
+  const requiresProgramSelection = selectedYearId !== 'ALL' && selectedYearId !== 5;
 
   // Helper to trigger adding a slot with the active program and section filter pre-populated
   const handleSlotAdd = (
@@ -113,6 +116,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
   // Filter schedules based on search term and optional room/prof/program/section filters
   const filteredSchedules = useMemo(() => {
     return schedules.filter((s) => {
+      if (requiresProgramSelection && selectedProgramFilter === 'ALL') return false;
       // Search term
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
@@ -141,7 +145,9 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
           }
         } else {
           // Lecture: if the course belongs to a specific program, check match
-          if (s.courseProgramId && s.courseProgramId !== selectedProgramFilter) {
+          if (s.courseProgramIds?.length
+            ? !s.courseProgramIds.includes(selectedProgramFilter)
+            : s.courseProgramId && s.courseProgramId !== selectedProgramFilter) {
             return false;
           }
         }
@@ -201,12 +207,12 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
       <div className="calendar-controls-bar">
         {/* Day Selector Pills */}
         <div className="day-tabs-group">
-          <button
+          {!requiresProgramSelection && <button
             className={`day-tab-pill ${!isFullWeekView ? 'active' : ''}`}
             onClick={() => setIsFullWeekView(false)}
           >
             Day View
-          </button>
+          </button>}
           <button
             className={`day-tab-pill ${isFullWeekView ? 'active' : ''}`}
             onClick={() => setIsFullWeekView(true)}
@@ -317,21 +323,28 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
 
       {/* Program Selection Strip when in YEAR or PROGRAM view */}
       {(viewMode === 'YEAR' || viewMode === 'PROGRAM') && (
-        activeSections.some((s) => s.programId !== null) || selectedYearId === 'ALL' ? (
+        selectedYearId !== 5 && selectedYearId !== 'ALL' || activeSections.some((s) => s.programId !== null) ? (
           <div className="program-selection-strip">
             <div className="program-strip-label">
               <GraduationCap size={16} className="text-primary" />
               <span className="font-semibold text-xs text-secondary">Department View:</span>
             </div>
             <div className="program-pills-row">
-              <button
+              {!requiresProgramSelection && <button
                 className={`program-filter-pill ${selectedProgramFilter === 'ALL' ? 'active' : ''}`}
                 onClick={() => setSelectedProgramFilter('ALL')}
               >
                 All Departments ({programs.length})
-              </button>
+              </button>}
               {programs
-                .filter((p) => selectedYearId === 'ALL' || activeSections.some((s) => s.programId === p.id))
+                .filter((p) =>
+                  selectedYearId !== 5 ||
+                  activeSections.some((s) => s.programId === p.id) ||
+                  schedules.some((s) =>
+                    s.academicYearId === selectedYearId &&
+                    (s.courseProgramIds?.includes(p.id) || s.courseProgramId === p.id)
+                  )
+                )
                 .map((p) => (
                   <button
                     key={p.id}

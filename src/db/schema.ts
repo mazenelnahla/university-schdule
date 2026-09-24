@@ -125,6 +125,7 @@ export interface ScheduleWithDetails extends ScheduleItem {
   programName?: string;
   programCode?: string;
   courseProgramId?: number | null;
+  courseProgramIds?: number[];
   courseProgramCode?: string;
   courseProgramName?: string;
   courseCode: string;

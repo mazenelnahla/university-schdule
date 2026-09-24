@@ -29,6 +29,7 @@ export interface AutoScheduleResult {
   professorsAssigned: number;
   message: string;
   coursesScheduled: string[];
+  conflicts: string[];
 }
 
 interface ScheduledSession {
@@ -221,6 +222,7 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
   }
 
   const generatedSessions: ScheduledSession[] = [];
+  const conflicts: string[] = [];
   const scheduledCourseCodes: string[] = [];
 
   // Helper: Find matching professor/TA for a course department
@@ -403,6 +405,47 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
               }
               if (lectureScheduled) break;
             }
+
+            // Shared Prep lectures must be created for both groups. If faculty
+            // attendance was the only blocker, retry with any conflict-free
+            // faculty member so the second group is not silently omitted.
+            if (!lectureScheduled && course.targetGroup === 'ALL') {
+              for (const day of DAYS) {
+                if (lectureScheduled) break;
+                for (const period of STANDARD_PERIODS) {
+                  if (lectureScheduled) break;
+                  for (const hall of lectureHalls.concat([fallbackLectureHall])) {
+                    for (const prof of professorsPool) {
+                      const candidate: ScheduledSession = {
+                        academicYearId: year.id,
+                        sectionId: grp.id,
+                        sectionName: grp.name,
+                        courseId: course.id,
+                        courseCode: course.code,
+                        professorId: prof.id,
+                        roomId: hall.id,
+                        dayOfWeek: day,
+                        periodId: period.id,
+                        startTime: period.startTime,
+                        endTime: period.endTime,
+                        sessionType: 'LECTURE',
+                        notes: `${grp.name} Theory Lecture`,
+                      };
+                      if (!hasSlotConflict(candidate, [...committedSessions, ...generatedSessions])) {
+                        generatedSessions.push(candidate);
+                        yearDayLoad[day]++;
+                        lectureScheduled = true;
+                        break;
+                      }
+                    }
+                    if (lectureScheduled) break;
+                  }
+                }
+              }
+            }
+          }
+          if (!lectureScheduled) {
+            conflicts.push(`${course.code} - ${course.name}: could not schedule the ${grp.name} lecture without a room, professor, or cohort conflict.`);
           }
         }
       } else {
@@ -440,6 +483,9 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
                 yearDayLoad[day]++;
                 lectureScheduled = true;
                 break;
+              }
+              if (!lectureScheduled) {
+                conflicts.push(`${course.code} - ${course.name}: could not schedule the whole-cohort lecture without a conflict.`);
               }
             }
             if (lectureScheduled) break;
@@ -493,6 +539,9 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
                   yearDayLoad[day]++;
                   secScheduled = true;
                   break;
+                }
+                if (!secScheduled) {
+                  conflicts.push(`${course.code} - ${course.name}: could not schedule ${sec.name} practical/section without a conflict.`);
                 }
               }
               if (secScheduled) break;
@@ -548,6 +597,9 @@ export async function autoGenerateTimetableBySemester(options: AutoScheduleOptio
     roomsUtilized: uniqueRooms,
     professorsAssigned: uniqueProfs,
     coursesScheduled: Array.from(new Set(scheduledCourseCodes)),
-    message: `Successfully generated ${generatedSessions.length} sessions for ${semesterLabel} across ${uniqueYears} academic year levels with 0 conflicts!`,
+    message: conflicts.length > 0
+      ? `Generated ${generatedSessions.length} sessions for ${semesterLabel}, but ${conflicts.length} placement conflict${conflicts.length === 1 ? '' : 's'} need attention.`
+      : `Successfully generated ${generatedSessions.length} sessions for ${semesterLabel} across ${uniqueYears} academic year levels with 0 conflicts!`,
+    conflicts,
   };
 }

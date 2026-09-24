@@ -383,6 +383,7 @@ export function migrateExistingDatabase(db: Database) {
     if (!courseCols.includes('has_sections')) {
       db.run("ALTER TABLE courses ADD COLUMN has_sections INTEGER NOT NULL DEFAULT 1;");
     }
+    db.run("UPDATE courses SET target_group = 'ALL' WHERE year_id != 5 AND target_group IN ('GROUP_A', 'GROUP_B');");
 
     // 11. Ensure AI curriculum subjects & prerequisite dependency links from template.xlsx exist
     seedAiCurriculum(db);
