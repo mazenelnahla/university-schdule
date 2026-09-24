@@ -11,6 +11,7 @@ import type {
   ScheduleWithDetails,
   ConflictCheckResult,
   AdminUser,
+  TargetGroup,
 } from './schema';
 
 // Helper to convert time "HH:MM" to minutes from midnight
@@ -118,10 +119,39 @@ export async function getSections(yearId?: number, programId?: number): Promise<
   return rowsToObjects<Section>(res);
 }
 
+export function parseAvailableDays(val: any): number[] | undefined {
+  if (!val) return undefined;
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed) return undefined;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(Number);
+    } catch {
+      return trimmed
+        .split(',')
+        .map((x) => Number(x.trim()))
+        .filter((x) => !isNaN(x));
+    }
+  }
+  return undefined;
+}
+
 export async function getProfessors(): Promise<Professor[]> {
   const db = await getSqliteDb();
-  const res = db.exec('SELECT id, name, title, department, email, phone, office FROM professors ORDER BY name ASC');
-  return rowsToObjects<Professor>(res);
+  const res = db.exec('SELECT id, name, title, department, email, phone, office, available_days FROM professors ORDER BY name ASC');
+  const rows = rowsToObjects<any>(res);
+  return rows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    title: p.title,
+    department: p.department,
+    email: p.email,
+    phone: p.phone,
+    office: p.office,
+    availableDays: parseAvailableDays(p.availableDays),
+  }));
 }
 
 export async function getRooms(): Promise<Room[]> {
@@ -130,13 +160,128 @@ export async function getRooms(): Promise<Room[]> {
   return rowsToObjects<Room>(res);
 }
 
-export async function getCourses(yearId?: number): Promise<Course[]> {
+export function parsePrerequisiteIds(val: any): number[] | undefined {
+  if (!val) return undefined;
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed) return undefined;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(Number);
+    } catch {
+      return trimmed
+        .split(',')
+        .map((x) => Number(x.trim()))
+        .filter((x) => !isNaN(x));
+    }
+  }
+  return undefined;
+}
+
+export async function getCourses(yearId?: number, programId?: number | null): Promise<Course[]> {
   const db = await getSqliteDb();
-  const sql = yearId
-    ? `SELECT id, code, name, credit_hours, department, year_id, color_hex FROM courses WHERE year_id = ${yearId} ORDER BY code ASC`
-    : 'SELECT id, code, name, credit_hours, department, year_id, color_hex FROM courses ORDER BY code ASC';
+  const whereClauses: string[] = [];
+  if (yearId !== undefined && yearId !== null) {
+    whereClauses.push(`c.year_id = ${yearId}`);
+  }
+  if (programId !== undefined && programId !== null) {
+    whereClauses.push(`(c.program_id = ${programId} OR c.program_id IS NULL)`);
+  }
+  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const sql = `
+    SELECT 
+      c.id, 
+      c.code, 
+      c.name, 
+      c.credit_hours, 
+      c.department, 
+      c.year_id, 
+      c.program_id,
+      p.code AS program_code,
+      p.name AS program_name,
+      c.color_hex, 
+      c.prerequisite_ids,
+      c.semester,
+      c.target_group,
+      c.has_sections
+    FROM courses c
+    LEFT JOIN programs p ON c.program_id = p.id
+    ${whereSql}
+    ORDER BY c.code ASC
+  `;
   const res = db.exec(sql);
-  return rowsToObjects<Course>(res);
+  const rows = rowsToObjects<any>(res);
+  return rows.map((c) => ({
+    id: c.id,
+    code: c.code,
+    name: c.name,
+    creditHours: c.creditHours,
+    department: c.department,
+    yearId: c.yearId,
+    programId: c.programId ?? null,
+    programCode: c.programCode ?? undefined,
+    programName: c.programName ?? undefined,
+    colorHex: c.colorHex,
+    prerequisiteIds: parsePrerequisiteIds(c.prerequisiteIds),
+    semester: c.semester !== undefined && c.semester !== null ? Number(c.semester) : 1,
+    targetGroup: (c.targetGroup || c.target_group || 'ALL') as TargetGroup,
+    hasSections: c.hasSections !== undefined ? Boolean(Number(c.hasSections)) : (c.has_sections !== undefined ? Boolean(Number(c.has_sections)) : true),
+  }));
+}
+
+/**
+ * Resolves the full bidirectional dependency graph (both direct & transitive) for a course.
+ * If Course B depends on Course A (prerequisite), then Course A and Course B cannot overlap.
+ * If Course C depends on Course B (which depends on Course A), then Course C cannot overlap with A or B either.
+ * Returns a Set of course IDs that are in the dependency chain with targetCourseId.
+ */
+export function getAllDependentCourseIds(targetCourseId: number, courses: Course[]): Set<number> {
+  const prereqGraph = new Map<number, number[]>(); // courseId -> its prerequisites
+  const dependentGraph = new Map<number, number[]>(); // courseId -> courses that depend on it
+
+  for (const c of courses) {
+    const prereqs = c.prerequisiteIds || [];
+    prereqGraph.set(c.id, prereqs);
+    for (const pid of prereqs) {
+      const list = dependentGraph.get(pid) || [];
+      list.push(c.id);
+      dependentGraph.set(pid, list);
+    }
+  }
+
+  const result = new Set<number>();
+  const queue: number[] = [targetCourseId];
+  const visited = new Set<number>([targetCourseId]);
+
+  // 1. Traverse upstream (all prerequisites and their prerequisites)
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const prereqs = prereqGraph.get(current) || [];
+    for (const p of prereqs) {
+      if (!visited.has(p)) {
+        visited.add(p);
+        result.add(p);
+        queue.push(p);
+      }
+    }
+  }
+
+  // 2. Traverse downstream (all courses that depend on this course, and their dependents)
+  queue.push(targetCourseId);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const dependents = dependentGraph.get(current) || [];
+    for (const d of dependents) {
+      if (!visited.has(d)) {
+        visited.add(d);
+        result.add(d);
+        queue.push(d);
+      }
+    }
+  }
+
+  return result;
 }
 
 export async function getStandardPeriods(): Promise<StandardPeriod[]> {
@@ -171,7 +316,7 @@ export async function getAllSchedulesWithDetails(filter?: {
     whereClauses.push(`(s.section_id = ${filter.sectionId} OR s.section_id IS NULL)`);
   }
   if (filter?.programId !== undefined && filter.programId !== null) {
-    whereClauses.push(`(sec.program_id = ${filter.programId} OR s.section_id IS NULL)`);
+    whereClauses.push(`(sec.program_id = ${filter.programId} OR (s.section_id IS NULL AND (c.program_id = ${filter.programId} OR c.program_id IS NULL)))`);
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -196,6 +341,9 @@ export async function getAllSchedulesWithDetails(filter?: {
       sec.program_id AS program_id,
       prog.name AS program_name,
       prog.code AS program_code,
+      c.program_id AS course_program_id,
+      cprog.code AS course_program_code,
+      cprog.name AS course_program_name,
       c.code AS course_code,
       c.name AS course_name,
       c.color_hex AS course_color,
@@ -205,12 +353,15 @@ export async function getAllSchedulesWithDetails(filter?: {
       r.name AS room_name,
       r.type AS room_type,
       r.capacity AS room_capacity,
-      r.building
+      r.building,
+      r.floor AS room_floor,
+      r.floor
     FROM schedules s
     JOIN academic_years ay ON s.academic_year_id = ay.id
     LEFT JOIN sections sec ON s.section_id = sec.id
     LEFT JOIN programs prog ON sec.program_id = prog.id
     JOIN courses c ON s.course_id = c.id
+    LEFT JOIN programs cprog ON c.program_id = cprog.id
     JOIN professors p ON s.professor_id = p.id
     JOIN rooms r ON s.room_id = r.id
     ${whereSql}
@@ -240,6 +391,30 @@ export async function checkScheduleConflicts(input: {
   endTime: string;
   sessionType: 'LECTURE' | 'SECTION';
 }): Promise<ConflictCheckResult> {
+  const db = await getSqliteDb();
+
+  // 0. PROFESSOR ATTENDANCE RESTRICTION: Check if professor attends on this day of week
+  const profStmt = db.prepare('SELECT id, name, title, available_days FROM professors WHERE id = ?');
+  profStmt.bind([input.professorId]);
+  if (profStmt.step()) {
+    const profRow = profStmt.getAsObject();
+    const availableDays = parseAvailableDays(profRow.available_days);
+    if (availableDays && availableDays.length > 0 && !availableDays.includes(input.dayOfWeek)) {
+      profStmt.free();
+      const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const targetDayName = DAY_NAMES[input.dayOfWeek] || `Day ${input.dayOfWeek}`;
+      const allowedDaysStr = availableDays.map((d) => DAY_NAMES[d] || `Day ${d}`).join(', ');
+      return {
+        hasConflict: true,
+        conflictType: 'PROFESSOR_AVAILABILITY',
+        message: `Professor Attendance Restriction: ${profRow.title} ${profRow.name} only attends on [${allowedDaysStr}]. They cannot be scheduled on ${targetDayName}.`,
+      };
+    }
+  }
+  const allCourses = await getCourses();
+  const currentCourse = allCourses.find((c) => c.id === input.courseId);
+  const dependentCourseIds = getAllDependentCourseIds(input.courseId, allCourses);
+
   const allSchedules = await getAllSchedulesWithDetails({ dayOfWeek: input.dayOfWeek });
 
   for (const item of allSchedules) {
@@ -270,11 +445,38 @@ export async function checkScheduleConflicts(input: {
         };
       }
 
-      // 3. COHORT CONFLICT: Same year/section
+      // 3. COURSE DEPENDENCY CONFLICT (GPA System): Dependent courses cannot overlap on the same day
+      if (dependentCourseIds.has(item.courseId)) {
+        return {
+          hasConflict: true,
+          conflictType: 'COURSE_DEPENDENCY',
+          message: `Subject Dependency Conflict (GPA System): "${currentCourse?.code || 'Selected subject'} - ${currentCourse?.name || ''}" and "${item.courseCode} - ${item.courseName}" depend on each other. In a GPA credit-hour system, dependent subjects cannot be scheduled at overlapping times (${item.startTime} - ${item.endTime}) so students repeating or carrying over prerequisites (e.g., summer courses) can attend both without timetable clashes.`,
+          conflictingSchedule: item,
+        };
+      }
+
+      // 4. COHORT & PARALLEL GROUP CONFLICTS
       if (item.academicYearId === input.academicYearId) {
-        // If either the new one or existing one is a whole-year LECTURE (sectionId is null), it affects everyone in that year!
+        // A. Same Subject Across Parallel Groups:
+        // In the same year (e.g., Preparatory Year Group A vs Group B), the same course cannot be scheduled at the same time for different groups.
+        // For example: Physics 1 on Group A cannot be on Group B at the same time (groups must alternate subjects).
+        if (item.courseId === input.courseId && input.sectionId !== item.sectionId) {
+          const allYearSecs = await getSections(input.academicYearId);
+          const curSec = allYearSecs.find((s) => s.id === input.sectionId);
+          const curSecName = curSec?.name || (input.sectionId ? 'Selected Group' : 'Whole Cohort');
+          const otherSecName = item.sectionName || 'Another Group';
+          return {
+            hasConflict: true,
+            conflictType: 'SECTION',
+            message: `Parallel Group Conflict: "${item.courseCode} - ${item.courseName}" cannot be scheduled for ${curSecName} at the same time (${item.startTime} - ${item.endTime}) as ${otherSecName}. Parallel groups must alternate subjects (e.g., one group takes ${item.courseCode} while the other group takes a different subject).`,
+            conflictingSchedule: item,
+          };
+        }
+
+        // B. Whole-batch Lecture Conflict:
+        // If either session is explicitly for the whole batch (sectionId is null), it affects all groups in that year.
         if (input.sectionId === null || item.sectionId === null) {
-          const who = input.sectionId === null ? 'All students in this year' : `${item.sectionName || 'All students'}`;
+          const who = input.sectionId === null ? 'All students in this year (Whole Cohort)' : `${item.sectionName || 'All students'}`;
           return {
             hasConflict: true,
             conflictType: 'SECTION',
@@ -282,12 +484,23 @@ export async function checkScheduleConflicts(input: {
             conflictingSchedule: item,
           };
         }
-        // Both are sections: conflict if they are the exact same section
-        if (input.sectionId === item.sectionId) {
+
+        // C. Same Section or Sub-group Conflict:
+        const allYearSecs = await getSections(input.academicYearId);
+        const curSec = allYearSecs.find((s) => s.id === input.sectionId);
+        const isSameGroupOrSection =
+          input.sectionId === item.sectionId ||
+          (curSec && item.sectionName && areSectionsInSameGroup(curSec.name, item.sectionName));
+
+        if (isSameGroupOrSection) {
+          const targetName =
+            input.sectionId === item.sectionId
+              ? (item.sectionName || 'This section')
+              : `${curSec?.name || 'Group'} / ${item.sectionName || 'Group'}`;
           return {
             hasConflict: true,
             conflictType: 'SECTION',
-            message: `Section Conflict: ${item.sectionName} is already scheduled for "${item.courseCode} (${item.sessionType})" from ${item.startTime} to ${item.endTime}.`,
+            message: `Section Conflict: ${targetName} is already scheduled for "${item.courseCode} (${item.sessionType})" from ${item.startTime} to ${item.endTime}.`,
             conflictingSchedule: item,
           };
         }
@@ -296,6 +509,25 @@ export async function checkScheduleConflicts(input: {
   }
 
   return { hasConflict: false };
+}
+
+export function areSectionsInSameGroup(secName1?: string, secName2?: string): boolean {
+  if (!secName1 || !secName2) return false;
+  const s1 = secName1.trim().toLowerCase();
+  const s2 = secName2.trim().toLowerCase();
+  if (s1 === s2) return true;
+
+  // Check Group A matching
+  const isGroupA1 = /\bgroup\s*a\b/i.test(s1);
+  const isGroupA2 = /\bgroup\s*a\b/i.test(s2);
+  if (isGroupA1 && isGroupA2) return true;
+
+  // Check Group B matching
+  const isGroupB1 = /\bgroup\s*b\b/i.test(s1);
+  const isGroupB2 = /\bgroup\s*b\b/i.test(s2);
+  if (isGroupB1 && isGroupB2) return true;
+
+  return false;
 }
 
 /**
@@ -342,6 +574,22 @@ export async function getBusyProfessors(
   }
 
   return busy;
+}
+
+/**
+ * Returns a mapping of professorId -> details for professors who do NOT attend on this day of the week.
+ */
+export function getUnavailableProfessorsOnDay(
+  dayOfWeek: number,
+  professors: Professor[]
+): Map<number, { professor: Professor; availableDays: number[] }> {
+  const map = new Map<number, { professor: Professor; availableDays: number[] }>();
+  for (const p of professors) {
+    if (p.availableDays && p.availableDays.length > 0 && !p.availableDays.includes(dayOfWeek)) {
+      map.set(p.id, { professor: p, availableDays: p.availableDays });
+    }
+  }
+  return map;
 }
 
 // ---------------------- SCHEDULE MUTATIONS ----------------------
@@ -469,10 +717,11 @@ export async function clearAllSchedules(): Promise<boolean> {
 export async function addProfessor(prof: Omit<Professor, 'id'>): Promise<number> {
   const db = await getSqliteDb();
   const stmt = db.prepare(`
-    INSERT INTO professors (name, title, department, email, phone, office)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO professors (name, title, department, email, phone, office, available_days)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run([prof.name, prof.title, prof.department, prof.email, prof.phone || null, prof.office || null]);
+  const availDaysJson = prof.availableDays && prof.availableDays.length > 0 ? JSON.stringify(prof.availableDays) : null;
+  stmt.run([prof.name, prof.title, prof.department, prof.email, prof.phone || null, prof.office || null, availDaysJson]);
   stmt.free();
   await saveToIndexedDB(db);
   const idRes = db.exec('SELECT last_insert_rowid() AS id');
@@ -483,10 +732,11 @@ export async function updateProfessor(id: number, prof: Omit<Professor, 'id'>): 
   const db = await getSqliteDb();
   const stmt = db.prepare(`
     UPDATE professors SET
-      name = ?, title = ?, department = ?, email = ?, phone = ?, office = ?
+      name = ?, title = ?, department = ?, email = ?, phone = ?, office = ?, available_days = ?
     WHERE id = ?
   `);
-  stmt.run([prof.name, prof.title, prof.department, prof.email, prof.phone || null, prof.office || null, id]);
+  const availDaysJson = prof.availableDays && prof.availableDays.length > 0 ? JSON.stringify(prof.availableDays) : null;
+  stmt.run([prof.name, prof.title, prof.department, prof.email, prof.phone || null, prof.office || null, availDaysJson, id]);
   stmt.free();
   await saveToIndexedDB(db);
 }
@@ -533,30 +783,91 @@ export async function deleteRoom(id: number): Promise<void> {
 export async function addCourse(course: Omit<Course, 'id'>): Promise<number> {
   const db = await getSqliteDb();
   const stmt = db.prepare(`
-    INSERT INTO courses (code, name, credit_hours, department, year_id, color_hex)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO courses (code, name, credit_hours, department, year_id, program_id, color_hex, prerequisite_ids, semester, target_group, has_sections)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  stmt.run([course.code, course.name, course.creditHours, course.department, course.yearId, course.colorHex || '#3b82f6']);
+  const prereqsJson = course.prerequisiteIds && course.prerequisiteIds.length > 0 ? JSON.stringify(course.prerequisiteIds) : null;
+  stmt.run([
+    course.code,
+    course.name,
+    course.creditHours,
+    course.department,
+    course.yearId,
+    course.programId ?? null,
+    course.colorHex || '#3b82f6',
+    prereqsJson,
+    course.semester ?? 1,
+    course.targetGroup || 'ALL',
+    course.hasSections !== false ? 1 : 0,
+  ]);
   stmt.free();
-  await saveToIndexedDB(db);
+
   const idRes = db.exec('SELECT last_insert_rowid() AS id');
-  return Number(idRes[0].values[0][0]);
+  const newId = Number(idRes[0].values[0][0]);
+
+  if (course.prerequisiteIds && course.prerequisiteIds.length > 0) {
+    for (const pid of course.prerequisiteIds) {
+      db.run(`INSERT OR IGNORE INTO course_dependencies (course_id, prerequisite_id) VALUES (${newId}, ${pid})`);
+    }
+  }
+
+  await saveToIndexedDB(db);
+  return newId;
 }
 
 export async function updateCourse(id: number, course: Omit<Course, 'id'>): Promise<void> {
   const db = await getSqliteDb();
   const stmt = db.prepare(`
     UPDATE courses SET
-      code = ?, name = ?, credit_hours = ?, department = ?, year_id = ?, color_hex = ?
+      code = ?, name = ?, credit_hours = ?, department = ?, year_id = ?, program_id = ?, color_hex = ?, prerequisite_ids = ?, semester = ?, target_group = ?, has_sections = ?
     WHERE id = ?
   `);
-  stmt.run([course.code, course.name, course.creditHours, course.department, course.yearId, course.colorHex || '#3b82f6', id]);
+  const prereqsJson = course.prerequisiteIds && course.prerequisiteIds.length > 0 ? JSON.stringify(course.prerequisiteIds) : null;
+  stmt.run([
+    course.code,
+    course.name,
+    course.creditHours,
+    course.department,
+    course.yearId,
+    course.programId ?? null,
+    course.colorHex || '#3b82f6',
+    prereqsJson,
+    course.semester ?? 1,
+    course.targetGroup || 'ALL',
+    course.hasSections !== false ? 1 : 0,
+    id,
+  ]);
+  stmt.free();
+
+  db.run(`DELETE FROM course_dependencies WHERE course_id = ${id}`);
+  if (course.prerequisiteIds && course.prerequisiteIds.length > 0) {
+    for (const pid of course.prerequisiteIds) {
+      db.run(`INSERT OR IGNORE INTO course_dependencies (course_id, prerequisite_id) VALUES (${id}, ${pid})`);
+    }
+  }
+
+  await saveToIndexedDB(db);
+}
+
+export async function updateCourseTargetGroup(id: number, targetGroup: TargetGroup): Promise<void> {
+  const db = await getSqliteDb();
+  const stmt = db.prepare('UPDATE courses SET target_group = ? WHERE id = ?;');
+  stmt.run([targetGroup, id]);
+  stmt.free();
+  await saveToIndexedDB(db);
+}
+
+export async function updateCourseHasSections(id: number, hasSections: boolean): Promise<void> {
+  const db = await getSqliteDb();
+  const stmt = db.prepare('UPDATE courses SET has_sections = ? WHERE id = ?;');
+  stmt.run([hasSections ? 1 : 0, id]);
   stmt.free();
   await saveToIndexedDB(db);
 }
 
 export async function deleteCourse(id: number): Promise<void> {
   const db = await getSqliteDb();
+  db.run(`DELETE FROM course_dependencies WHERE course_id = ${id} OR prerequisite_id = ${id}`);
   db.run(`DELETE FROM courses WHERE id = ${id}`);
   await saveToIndexedDB(db);
 }
@@ -624,3 +935,6 @@ export async function deleteSection(id: number): Promise<void> {
   db.run(`DELETE FROM sections WHERE id = ${id}`);
   await saveToIndexedDB(db);
 }
+
+// AI CURRICULUM SYNC
+export { syncAiCurriculumFromTemplate } from './sqlite';

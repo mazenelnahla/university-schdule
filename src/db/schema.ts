@@ -38,6 +38,7 @@ export interface Professor {
   email: string;
   phone?: string;
   office?: string;
+  availableDays?: number[]; // [0,1,2,3,4] where 0=Sun, 1=Mon, ..., 6=Sat. undefined/empty = available all days
 }
 
 export type RoomType = 'LECTURE_HALL' | 'COMPUTER_LAB' | 'TUTORIAL_ROOM' | 'WORKSHOP';
@@ -52,6 +53,8 @@ export interface Room {
   floor: number;
 }
 
+export type TargetGroup = 'ALL' | 'GROUP_A' | 'GROUP_B';
+
 export interface Course {
   id: number;
   code: string; // e.g., 'CS101'
@@ -59,28 +62,35 @@ export interface Course {
   creditHours: number;
   department: string;
   yearId: number;
+  programId?: number | null; // null = Common Core / All Programs in this Year
+  programCode?: string;
+  programName?: string;
   colorHex?: string;
+  prerequisiteIds?: number[]; // IDs of courses this course depends on (GPA system prerequisites)
+  semester?: number; // 1 or 2
+  targetGroup?: TargetGroup; // 'ALL' = both groups / all cohorts; 'GROUP_A' = Group A only; 'GROUP_B' = Group B only
+  hasSections?: boolean; // true = has practical sections/labs (default); false = lecture only (no sections)
 }
 
 export interface StandardPeriod {
   id: number;
   periodNumber: number;
-  startTime: string; // '08:30'
-  endTime: string; // '10:00'
-  label: string; // 'Period 1 (08:30 - 10:00)'
+  startTime: string; // '10:00'
+  endTime: string; // '11:15'
+  label: string; // 'Period 1 (10:00 - 11:15)'
 }
 
 export interface ScheduleItem {
   id: number;
   academicYearId: number;
-  sectionId: number | null; // null = entire year (e.g. for Lectures)
   courseId: number;
+  sectionId: number | null; // null = entire year (e.g. for Lectures)
   professorId: number;
   roomId: number;
   dayOfWeek: number; // 0 = Sunday, 1 = Monday, 2 = Tuesday, 3 = Wednesday, 4 = Thursday, 5 = Friday, 6 = Saturday
   periodId: number | null; // optional reference to standard period
-  startTime: string; // '08:30'
-  endTime: string; // '10:00'
+  startTime: string; // '10:00'
+  endTime: string; // '11:15'
   sessionType: SessionType;
   notes?: string;
 }
@@ -92,6 +102,9 @@ export interface ScheduleWithDetails extends ScheduleItem {
   programId?: number | null;
   programName?: string;
   programCode?: string;
+  courseProgramId?: number | null;
+  courseProgramCode?: string;
+  courseProgramName?: string;
   courseCode: string;
   courseName: string;
   courseColor?: string;
@@ -102,11 +115,13 @@ export interface ScheduleWithDetails extends ScheduleItem {
   roomType: RoomType;
   roomCapacity: number;
   building: string;
+  roomFloor?: number;
+  floor?: number;
 }
 
 export interface ConflictCheckResult {
   hasConflict: boolean;
-  conflictType?: 'ROOM' | 'PROFESSOR' | 'SECTION';
+  conflictType?: 'ROOM' | 'PROFESSOR' | 'SECTION' | 'PROFESSOR_AVAILABILITY' | 'COURSE_DEPENDENCY';
   message?: string;
   conflictingSchedule?: ScheduleWithDetails;
 }

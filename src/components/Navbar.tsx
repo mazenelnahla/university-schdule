@@ -34,6 +34,7 @@ interface NavbarProps {
   onClearTimetable?: () => void;
   onLoadSampleDb?: () => void;
   onRefreshData: () => void;
+  onOpenAutoSchedule?: () => void;
 }
 
 export const Navbar: FC<NavbarProps> = ({
@@ -52,6 +53,7 @@ export const Navbar: FC<NavbarProps> = ({
   onClearTimetable,
   onLoadSampleDb,
   onRefreshData,
+  onOpenAutoSchedule,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sqliteMenuRef = useRef<HTMLDivElement>(null);
@@ -114,6 +116,7 @@ export const Navbar: FC<NavbarProps> = ({
         {/* Database & Admin Actions */}
         <div className="header-actions">
           {/* SQLite DB Dropdown Menu */}
+          {adminUser?(
           <div className="sqlite-dropdown-container" ref={sqliteMenuRef}>
             <button
               type="button"
@@ -191,6 +194,23 @@ export const Navbar: FC<NavbarProps> = ({
                   </button>
                 )}
 
+                {onOpenAutoSchedule && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSqliteMenuOpen(false);
+                      onOpenAutoSchedule();
+                    }}
+                    className="sqlite-menu-item highlight-item"
+                  >
+                    <Sparkles size={15} className="item-icon text-amber-400" />
+                    <div className="item-text-group">
+                      <span className="item-title text-amber-300">Auto Gen Tables by Semester</span>
+                      <span className="item-desc">Generate conflict-free schedule for Fall or Spring</span>
+                    </div>
+                  </button>
+                )}
+
                 {onClearTimetable && (
                   <button
                     type="button"
@@ -207,7 +227,7 @@ export const Navbar: FC<NavbarProps> = ({
                     </div>
                   </button>
                 )}
-
+              
                 <button
                   type="button"
                   onClick={() => {
@@ -223,6 +243,7 @@ export const Navbar: FC<NavbarProps> = ({
                   </div>
                 </button>
               </div>
+
             )}
 
             <input
@@ -233,6 +254,8 @@ export const Navbar: FC<NavbarProps> = ({
               style={{ display: 'none' }}
             />
           </div>
+          ):(<></>)
+          }
 
           {/* Admin Authentication & Management */}
           {adminUser ? (
@@ -254,6 +277,17 @@ export const Navbar: FC<NavbarProps> = ({
                 >
                   <Settings size={16} />
                   <span>Admin Hub Page</span>
+                </button>
+              )}
+
+              {onOpenAutoSchedule && (
+                <button
+                  onClick={onOpenAutoSchedule}
+                  className="action-btn secondary-btn auto-gen-nav-btn"
+                  title="Auto-Generate complete semester timetables without conflicts"
+                >
+                  <Sparkles size={16} className="text-amber-400" />
+                  <span>Auto Gen Tables</span>
                 </button>
               )}
 
@@ -325,10 +359,10 @@ export const Navbar: FC<NavbarProps> = ({
             <button
               className={`view-mode-btn ${viewMode === 'PROGRAM' ? 'active' : ''}`}
               onClick={() => onViewModeChange('PROGRAM')}
-              title="Show each degree program independently"
+              title="Show each academic department / program independently"
             >
               <GraduationCap size={15} />
-              <span>By Program</span>
+              <span>By Department</span>
             </button>
             <button
               className={`view-mode-btn ${viewMode === 'ROOM' ? 'active' : ''}`}
@@ -353,12 +387,6 @@ export const Navbar: FC<NavbarProps> = ({
             <span className="font-semibold">Administration Workspace</span>
             <span className="text-muted">• Manage campus facilities, professors, curriculum & cohorts</span>
           </div>
-          <button
-            onClick={() => onNavigate('TIMETABLE')}
-            className="action-btn text-btn text-xs"
-          >
-            ← Back to Timetable
-          </button>
         </div>
       )}
     </header>

@@ -1,9 +1,10 @@
 import { Fragment, type FC } from 'react';
-import { GraduationCap, Building } from 'lucide-react';
+import { Building } from 'lucide-react';
 import type {
   AcademicYear,
   Program,
   Section,
+  Professor,
   Course,
   StandardPeriod,
   ScheduleWithDetails,
@@ -33,9 +34,12 @@ export interface PrintTimetableSheetProps {
   relevantSchedules: ScheduleWithDetails[];
   schedules: ScheduleWithDetails[];
   activeDays: PrintDay[];
-  printLayout: 'MASTER_GRID' | 'PROGRAM_SHEETS' | 'SECTION_ROWS';
+  printLayout: 'MASTER_GRID' | 'PROGRAM_SHEETS' | 'SECTION_ROWS' | 'TA_SHEETS';
   density?: 'STANDARD' | 'COMPACT';
   currentDateFormatted: string;
+  teachingAssistants?: Professor[];
+  selectedTaId?: number | 'ALL';
+  selectedTaYearId?: number | 'ALL';
 }
 
 // =========================================================================
@@ -50,14 +54,18 @@ export interface PrintFormalHeaderProps {
 }
 
 export const PrintFormalHeader: FC<PrintFormalHeaderProps> = ({
-  facultyName = 'FACULTY OF Engineering',
+  facultyName = 'Faculty of Engineering',
   docTitle,
   badges,
   issuedDate,
 }) => (
   <header className="print-formal-header">
-    <div className="header-university-crest">
-      <GraduationCap size={36} className="crest-icon" />
+    <div className="header-university-crest header-crest-left">
+      <img
+        src={`${import.meta.env.BASE_URL}Ficon.jpg`}
+        alt="Faculty of Engineering"
+        className="header-crest-img"
+      />
     </div>
     <div className="header-text-center">
       <h1 className="univ-title">{facultyName}</h1>
@@ -71,6 +79,13 @@ export const PrintFormalHeader: FC<PrintFormalHeaderProps> = ({
       </div>
     </div>
     <div className="header-seal-box">
+      <div className="header-university-crest header-crest-right">
+        <img
+          src={`${import.meta.env.BASE_URL}Pasted%202026-09-21%20at%201.29.12%20PM.png`}
+          alt="East Port Said National University"
+          className="header-crest-img"
+        />
+      </div>
       <div className="seal-date">Issued: {issuedDate}</div>
     </div>
   </header>
@@ -79,17 +94,21 @@ export const PrintFormalHeader: FC<PrintFormalHeaderProps> = ({
 export interface PrintSignaturesFooterProps {
   deptHeadName?: string;
   facultyName?: string;
+  customSigneeRole?: string;
+  customSigneeName?: string;
 }
 
 export const PrintSignaturesFooter: FC<PrintSignaturesFooterProps> = ({
   deptHeadName = 'Faculty Council',
   facultyName = 'Faculty of Engineering',
+  customSigneeRole,
+  customSigneeName,
 }) => (
   <footer className="print-signatures-footer">
     <div className="sig-block">
       <div className="sig-line"></div>
-      <div className="sig-role">Timetable Committee Coordinator</div>
-      <div className="sig-name">Academic Affairs Office</div>
+      <div className="sig-role">{customSigneeRole || 'Timetable Committee Coordinator'}</div>
+      <div className="sig-name">{customSigneeName || 'Academic Affairs Office'}</div>
     </div>
     <div className="sig-block">
       <div className="sig-line"></div>
@@ -104,18 +123,33 @@ export const PrintSignaturesFooter: FC<PrintSignaturesFooterProps> = ({
   </footer>
 );
 
+const formatFloor = (floor?: number | null): string => {
+  if (floor === undefined || floor === null) return '';
+  if (floor === 0) return 'Ground Fl.';
+  if (floor === 1) return '1st Fl.';
+  if (floor === 2) return '2nd Fl.';
+  if (floor === 3) return '3rd Fl.';
+  return `Fl. ${floor}`;
+};
+
 export interface PrintSessionCardProps {
   schedule: ScheduleWithDetails;
   sections?: Section[];
 }
 
 export const PrintSessionCard: FC<PrintSessionCardProps> = ({ schedule, sections }) => {
-  const isLecture = schedule.sectionId === null;
+  const isLecture = schedule.sessionType === 'LECTURE';
   const sec = schedule.sectionId && sections ? sections.find((x) => x.id === schedule.sectionId) : null;
-  const progCode = sec?.programCode || schedule.programCode || (isLecture ? 'ALL' : '');
+  const progCode = sec?.programCode || schedule.programCode || (isLecture && !schedule.sectionId ? 'ALL' : '');
   const tagText = isLecture
-    ? 'LECTURE'
+    ? (schedule.sectionName ? `LEC (${schedule.sectionName})` : 'LECTURE')
     : `${progCode ? `[${progCode}] ` : ''}${schedule.sectionName || 'SEC'}`;
+
+  const floorStr = formatFloor(schedule.roomFloor ?? schedule.floor);
+  const locationParts = [
+    schedule.building || schedule.roomName || '',
+    floorStr,
+  ].filter(Boolean).join(' • ');
 
   return (
     <div className={`print-session-card ${isLecture ? 'lecture-card' : 'section-card'}`}>
@@ -127,13 +161,104 @@ export const PrintSessionCard: FC<PrintSessionCardProps> = ({ schedule, sections
       </div>
       <div className="card-title">{schedule.courseName}</div>
       <div className="card-details-line">
-        <span className="card-room">
+        <span className="card-room" title={locationParts ? `${schedule.roomCode} — ${locationParts}` : schedule.roomCode}>
           <Building size={9} className="inline-icon" />
-          <strong>{schedule.roomCode}</strong> ({schedule.building || schedule.roomName || ''})
+          <strong>{schedule.roomCode}</strong>{locationParts ? ` (${locationParts})` : ''}
         </span>
         <span className="card-faculty-inline">
           • {schedule.professorTitle} {schedule.professorName}
         </span>
+      </div>
+    </div>
+  );
+};
+
+export interface PrintTaSessionCardProps {
+  schedule: ScheduleWithDetails;
+  sections?: Section[];
+}
+
+export const PrintTaSessionCard: FC<PrintTaSessionCardProps> = ({ schedule, sections }) => {
+  const isLecture = schedule.sessionType === 'LECTURE';
+  const sec = schedule.sectionId && sections ? sections.find((x) => x.id === schedule.sectionId) : null;
+  const progCode = sec?.programCode || schedule.programCode || '';
+
+  const tagText = isLecture
+    ? (schedule.sectionName ? `LEC (${schedule.sectionName})` : 'LECTURE')
+    : `${progCode ? `[${progCode}] ` : ''}${schedule.sectionName || 'PRACTICAL LAB'}`;
+
+  const cohortBadge = schedule.yearName || schedule.yearCode || '';
+  const floorStr = formatFloor(schedule.roomFloor ?? schedule.floor);
+  const locationParts = [
+    schedule.building || schedule.roomName || '',
+    floorStr,
+  ].filter(Boolean).join(' • ');
+
+  return (
+    <div className={`print-session-card ${isLecture ? 'lecture-card' : 'section-card'}`}>
+      <div className="card-top-tag">
+        <span className={`card-type-tag ${isLecture ? 'lecture-tag' : 'section-tag'}`}>
+          {tagText}
+        </span>
+        <span className="card-code-tag">{schedule.courseCode}</span>
+      </div>
+      <div className="card-title">{schedule.courseName}</div>
+      <div className="card-details-line">
+        <span className="card-room" title={locationParts ? `${schedule.roomCode} — ${locationParts}` : schedule.roomCode}>
+          <Building size={9} className="inline-icon" />
+          <strong>{schedule.roomCode}</strong>{locationParts ? ` (${locationParts})` : ''}
+        </span>
+        {cohortBadge && (
+          <span className="card-cohort-inline">
+            • {cohortBadge}
+          </span>
+        )}
+      </div>
+      {schedule.notes && <div className="card-notes-tiny">{schedule.notes}</div>}
+    </div>
+  );
+};
+
+export const TaWorkloadSummaryBar: FC<{
+  schedules: ScheduleWithDetails[];
+}> = ({ schedules }) => {
+  const courseMap = new Map<number, { code: string; name: string; sections: Set<string>; yearNames: Set<string> }>();
+  for (const s of schedules) {
+    if (!courseMap.has(s.courseId)) {
+      courseMap.set(s.courseId, {
+        code: s.courseCode,
+        name: s.courseName,
+        sections: new Set<string>(),
+        yearNames: new Set<string>(),
+      });
+    }
+    const entry = courseMap.get(s.courseId)!;
+    if (s.sectionName) entry.sections.add(s.sectionName);
+    if (s.yearName) entry.yearNames.add(s.yearName);
+  }
+
+  const coursesList = Array.from(courseMap.values());
+
+  return (
+    <div className="program-cohort-summary-bar ta-summary-bar">
+      <span className="summary-col-title">Assigned Labs &amp; Courses:</span>
+      <div className="summary-programs-list">
+        {coursesList.length > 0 ? (
+          coursesList.map((c) => (
+            <div key={c.code} className="program-summary-chip">
+              <span className="prog-chip-code">{c.code}</span>
+              <span className="prog-chip-name">{c.name}:</span>
+              <span className="prog-chip-sections">
+                {c.sections.size > 0 ? Array.from(c.sections).join(', ') : 'All Cohorts'}
+                {c.yearNames.size > 0 ? ` (${Array.from(c.yearNames).join(' / ')})` : ''}
+              </span>
+            </div>
+          ))
+        ) : (
+          <span className="ta-empty-workload" style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic' }}>
+            No sessions currently scheduled for this teaching assistant.
+          </span>
+        )}
       </div>
     </div>
   );
@@ -174,7 +299,6 @@ export const ProgramSummaryBar: FC<{
         <span className="summary-col-title">Preparatory General Cohort Sections:</span>
         <div className="summary-programs-list">
           <div className="program-summary-chip">
-            <span className="prog-chip-code">PREP</span>
             <span className="prog-chip-name">General Engineering:</span>
             <span className="prog-chip-sections">
               {generalSections.length > 0
@@ -224,7 +348,15 @@ export const PrintTimetableSheet: FC<PrintTimetableSheetProps> = ({
   activeDays,
   printLayout,
   currentDateFormatted,
+  teachingAssistants = [],
+  selectedTaId = 'ALL',
+  selectedTaYearId = 'ALL',
 }) => {
+  const activeTeachingAssistants = (
+    selectedTaId && selectedTaId !== 'ALL'
+      ? teachingAssistants.filter((t) => t.id === selectedTaId)
+      : teachingAssistants
+  );
   return (
     <>
       {/* =========================================================================
@@ -306,6 +438,9 @@ export const PrintTimetableSheet: FC<PrintTimetableSheetProps> = ({
             const progSchedules = schedules.filter((s) => {
               if (s.academicYearId !== activeYear?.id) return false;
               if (s.sectionId === null) return true;
+              if (prog.yearSections && prog.yearSections.some((ys) => ys.id === s.sectionId)) {
+                return true;
+              }
               const sec = sections.find((x) => x.id === s.sectionId);
               return sec?.programId === prog.id;
             });
@@ -318,7 +453,7 @@ export const PrintTimetableSheet: FC<PrintTimetableSheetProps> = ({
                 className={`print-page-sheet program-sheet ${!isLastSheet ? 'print-page-break-after' : ''}`}
               >
                 <PrintFormalHeader
-                  docTitle={`PROGRAM TIMETABLE — ${prog.name.toUpperCase()} (${prog.code})`}
+                  docTitle={`PROGRAM TIMETABLE — ${prog.name.toUpperCase()}${prog.code ? ` (${prog.code})` : ''}`}
                   badges={[
                     { label: 'Academic Year', value: activeYear?.name || '' },
                     { label: 'Department', value: prog.department },
@@ -477,6 +612,110 @@ export const PrintTimetableSheet: FC<PrintTimetableSheetProps> = ({
           </table>
 
           <PrintSignaturesFooter />
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODE 4: TEACHING ASSISTANTS SHEETS (1 Dedicated Accredited Page per TA)
+          ========================================================================= */}
+      {printLayout === 'TA_SHEETS' && (
+        <div className="ta-sheets-container">
+          {activeTeachingAssistants.length === 0 ? (
+            <div className="print-page-sheet ta-sheet">
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
+                <p style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '0.5rem' }}>
+                  No teaching assistants found.
+                </p>
+                <p style={{ fontSize: '0.85rem' }}>
+                  Add faculty members with title <strong>"TA"</strong> or <strong>"Eng."</strong> in Admin Hub to generate their timetables.
+                </p>
+              </div>
+            </div>
+          ) : (
+            activeTeachingAssistants.map((ta, taIdx) => {
+              const taSchedules = schedules.filter((s) => {
+                if (s.professorId !== ta.id) return false;
+                if (selectedTaYearId !== 'ALL' && s.academicYearId !== selectedTaYearId) {
+                  return false;
+                }
+                return true;
+              });
+
+              const isLastSheet = taIdx === activeTeachingAssistants.length - 1;
+              const totalHours = (taSchedules.length * 1.25).toFixed(1);
+
+              return (
+                <div
+                  key={ta.id}
+                  className={`print-page-sheet ta-sheet ${!isLastSheet ? 'print-page-break-after' : ''}`}
+                >
+                  <PrintFormalHeader
+                    docTitle={`TEACHING ASSISTANT TIMETABLE — ${ta.name.toUpperCase()}`}
+                    badges={[
+                      { label: 'Staff Member', value: `${ta.title} ${ta.name}` },
+                      { label: 'Department', value: ta.department || 'Faculty Staff' },
+                      {
+                        label: 'Weekly Load',
+                        value: `${taSchedules.length} Session${taSchedules.length === 1 ? '' : 's'} (${totalHours} Teaching Hrs)`,
+                      },
+                      { label: 'Campus Office', value: ta.office || 'Faculty Campus' },
+                      { label: 'Email', value: ta.email || 'N/A' },
+                      { label: 'Semester', value: activeYear?.semester || 'Fall Semester 2026' },
+                    ]}
+                    issuedDate={currentDateFormatted}
+                  />
+
+                  <TaWorkloadSummaryBar schedules={taSchedules} />
+
+                  <table className="print-timetable-table master-grid-table">
+                    <PeriodTableHeaders periods={standardPeriods} />
+                    <tbody>
+                      {activeDays.map((day) => {
+                        const daySchedules = taSchedules.filter((s) => s.dayOfWeek === day.id);
+
+                        return (
+                          <tr key={day.id} className="master-day-row">
+                            <td className="td-day-col-master">
+                              <div className="day-name-bold">{day.name}</div>
+                              <div className="day-name-sub">
+                                {daySchedules.length} Session{daySchedules.length === 1 ? '' : 's'}
+                              </div>
+                            </td>
+
+                            {standardPeriods.map((period) => {
+                              const slotSessions = daySchedules.filter((s) =>
+                                timesOverlap(s.startTime, s.endTime, period.startTime, period.endTime)
+                              );
+
+                              return (
+                                <td key={period.id} className="td-slot-cell">
+                                  {slotSessions.length > 0 ? (
+                                    <div className="slot-sessions-wrapper">
+                                      {slotSessions.map((s) => (
+                                        <PrintTaSessionCard key={s.id} schedule={s} sections={sections} />
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="empty-print-slot"></div>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+
+                  <PrintSignaturesFooter
+                    customSigneeRole="Teaching Assistant Signature"
+                    customSigneeName={ta.name}
+                    deptHeadName={ta.department ? `${ta.department} Department` : 'Department Head'}
+                  />
+                </div>
+              );
+            })
+          )}
         </div>
       )}
     </>

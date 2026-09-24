@@ -12,6 +12,7 @@ import {
   Layers,
   Lock,
   Check,
+  GraduationCap,
 } from 'lucide-react';
 import type {
   AcademicYear,
@@ -31,6 +32,7 @@ import {
   updateSchedule,
   getOccupiedRooms,
   getBusyProfessors,
+  getUnavailableProfessorsOnDay,
 } from '../db/scheduleService';
 
 const DAYS_OF_WEEK = [
@@ -43,7 +45,7 @@ const DAYS_OF_WEEK = [
   { value: 6, label: 'Saturday' },
 ];
 
-interface ScheduleDialogProps {
+export interface ScheduleDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -57,6 +59,7 @@ interface ScheduleDialogProps {
   initialDayOfWeek?: number;
   initialPeriodId?: number;
   initialYearId?: number;
+  initialProgramId?: number | 'ALL';
   editingSchedule?: ScheduleWithDetails | null;
 }
 
@@ -74,16 +77,20 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
   initialDayOfWeek = 0,
   initialPeriodId,
   initialYearId,
+  initialProgramId,
   editingSchedule,
 }) => {
   const [dayOfWeek, setDayOfWeek] = useState<number>(initialDayOfWeek);
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | 'CUSTOM'>(
     initialPeriodId || (standardPeriods[0]?.id ?? 1)
   );
-  const [startTime, setStartTime] = useState<string>(standardPeriods[0]?.startTime || '08:30');
-  const [endTime, setEndTime] = useState<string>(standardPeriods[0]?.endTime || '10:00');
+  const [startTime, setStartTime] = useState<string>(standardPeriods[0]?.startTime || '10:00');
+  const [endTime, setEndTime] = useState<string>(standardPeriods[0]?.endTime || '11:15');
   const [sessionType, setSessionType] = useState<SessionType>('LECTURE');
   const [academicYearId, setAcademicYearId] = useState<number>(initialYearId || years[0]?.id || 1);
+  const [selectedProgramId, setSelectedProgramId] = useState<number | 'ALL'>(
+    initialProgramId ?? (editingSchedule?.programId || editingSchedule?.courseProgramId || 'ALL')
+  );
   const [sectionId, setSectionId] = useState<number | ''>('');
   const [courseId, setCourseId] = useState<number>(courses[0]?.id || 1);
   const [professorId, setProfessorId] = useState<number>(professors[0]?.id || 1);
@@ -96,6 +103,11 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
   const [isCheckingConflict, setIsCheckingConflict] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Professors who do not attend campus on this day
+  const unavailableProfessors = useMemo(() => {
+    return getUnavailableProfessorsOnDay(dayOfWeek, professors);
+  }, [dayOfWeek, professors]);
 
   // Dynamically load occupied rooms and busy professors whenever day, time, or editing id changes
   useEffect(() => {
@@ -114,20 +126,24 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
           setBusyProfessors(busyMap);
 
           // If the currently selected roomId is in occupiedRooms, auto-select first available room
-          if (occMap.has(roomId)) {
-            const firstAvailableRoom = rooms.find((r) => !occMap.has(r.id));
-            if (firstAvailableRoom) {
-              setRoomId(firstAvailableRoom.id);
+          setRoomId((prevRoomId) => {
+            if (occMap.has(prevRoomId)) {
+              const firstAvailable = rooms.find((r) => !occMap.has(r.id));
+              return firstAvailable ? firstAvailable.id : prevRoomId;
             }
-          }
+            return prevRoomId;
+          });
 
-          // If currently selected professorId is busy, auto-select first available professor
-          if (busyMap.has(professorId)) {
-            const firstAvailableProf = professors.find((p) => !busyMap.has(p.id));
-            if (firstAvailableProf) {
-              setProfessorId(firstAvailableProf.id);
+          // If currently selected professorId is busy or not attending today, auto-select first available professor
+          setProfessorId((prevProfId) => {
+            if (busyMap.has(prevProfId) || unavailableProfessors.has(prevProfId)) {
+              const firstAvailable = professors.find(
+                (p) => !busyMap.has(p.id) && !unavailableProfessors.has(p.id)
+              );
+              return firstAvailable ? firstAvailable.id : prevProfId;
             }
-          }
+            return prevProfId;
+          });
         }
       } catch (err) {
         console.error('Error fetching occupancy', err);
@@ -138,7 +154,7 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, dayOfWeek, startTime, endTime, editingSchedule, rooms, professors]);
+  }, [isOpen, dayOfWeek, startTime, endTime, editingSchedule, rooms, professors, unavailableProfessors]);
 
   // Sync with editing item or initial props
   useEffect(() => {
@@ -153,6 +169,7 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
       setStartTime(editingSchedule.startTime);
       setEndTime(editingSchedule.endTime);
       setNotes(editingSchedule.notes || '');
+      setSelectedProgramId(editingSchedule.programId || editingSchedule.courseProgramId || 'ALL');
 
       // Check if matches standard period
       const matchedPeriod = standardPeriods.find(
@@ -162,6 +179,7 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
     } else {
       if (initialDayOfWeek !== undefined) setDayOfWeek(initialDayOfWeek);
       if (initialYearId) setAcademicYearId(initialYearId);
+      if (initialProgramId !== undefined) setSelectedProgramId(initialProgramId);
       if (initialPeriodId) {
         const p = standardPeriods.find((x) => x.id === initialPeriodId);
         if (p) {
@@ -172,7 +190,7 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
       }
       setNotes('');
     }
-  }, [editingSchedule, initialDayOfWeek, initialPeriodId, initialYearId, standardPeriods]);
+  }, [editingSchedule, initialDayOfWeek, initialPeriodId, initialYearId, initialProgramId, standardPeriods]);
 
   // When standard period changes, update start/end times
   const handlePeriodChange = (val: string) => {
@@ -189,18 +207,48 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
     }
   };
 
-  // Filter sections for currently selected year
+  const handleProgramChange = (progId: number | 'ALL') => {
+    setSelectedProgramId(progId);
+    if (progId !== 'ALL' && sectionId) {
+      const curSec = sections.find((s) => s.id === sectionId);
+      if (curSec && curSec.programId && curSec.programId !== progId) {
+        setSectionId('');
+      }
+    }
+  };
+
+  const handleSectionChange = (val: string) => {
+    const newSecId = val ? Number(val) : '';
+    setSectionId(newSecId);
+    if (newSecId) {
+      const curSec = sections.find((s) => s.id === newSecId);
+      if (curSec?.programId) {
+        setSelectedProgramId(curSec.programId);
+      }
+    }
+  };
+
+  // Filter sections for currently selected year and program
   const availableSections = useMemo(() => {
-    return sections.filter((s) => s.yearId === academicYearId);
-  }, [sections, academicYearId]);
+    const yearSecs = sections.filter((s) => s.yearId === academicYearId);
+    if (selectedProgramId === 'ALL') return yearSecs;
+    return yearSecs.filter((s) => s.programId === selectedProgramId || !s.programId);
+  }, [sections, academicYearId, selectedProgramId]);
 
-  // Filter courses for currently selected year
+  // Filter courses for currently selected year and program
   const availableCourses = useMemo(() => {
-    const matched = courses.filter((c) => c.yearId === academicYearId);
-    return matched.length > 0 ? matched : courses;
-  }, [courses, academicYearId]);
+    let matched = courses.filter((c) => c.yearId === academicYearId);
+    if (matched.length === 0) matched = courses;
 
-  // Auto-select first available course when year changes
+    if (selectedProgramId !== 'ALL') {
+      // Only show subjects related to this program (assigned to this program OR common to all programs)
+      const progMatched = matched.filter((c) => c.programId === selectedProgramId || !c.programId);
+      return progMatched.length > 0 ? progMatched : matched;
+    }
+    return matched;
+  }, [courses, academicYearId, selectedProgramId]);
+
+  // Auto-select first available course when year or program changes
   useEffect(() => {
     if (availableCourses.length > 0 && !availableCourses.some((c) => c.id === courseId)) {
       setCourseId(availableCourses[0].id);
@@ -233,7 +281,7 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
         const res = await checkScheduleConflicts({
           scheduleId: editingSchedule?.id,
           academicYearId,
-          sectionId: sessionType === 'SECTION' && sectionId !== '' ? Number(sectionId) : null,
+          sectionId: sectionId !== '' ? Number(sectionId) : null,
           courseId,
           professorId,
           roomId,
@@ -297,7 +345,7 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
     try {
       const payload = {
         academicYearId,
-        sectionId: sessionType === 'SECTION' && sectionId !== '' ? Number(sectionId) : null,
+        sectionId: sectionId !== '' ? Number(sectionId) : null,
         courseId,
         professorId,
         roomId,
@@ -369,6 +417,10 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
                   ? '⛔ Room Restriction Collision'
                   : conflictResult.conflictType === 'PROFESSOR'
                   ? '⚠️ Professor Double-Booking Conflict'
+                  : conflictResult.conflictType === 'PROFESSOR_AVAILABILITY'
+                  ? '📅 Professor Attendance Day Restriction'
+                  : conflictResult.conflictType === 'COURSE_DEPENDENCY'
+                  ? '🔗 Subject Dependency Conflict (GPA System Clash)'
                   : '⚠️ Student Cohort Conflict'}
               </div>
               <div className="text-sm mt-0.5">{conflictResult.message}</div>
@@ -526,20 +578,59 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
             </select>
           </div>
 
-          {/* Section (Only if Section type) */}
+          {/* Academic Department (Program) */}
+          {programs && programs.length > 0 && (
+            <div className="form-group">
+              <div className="flex-between-center mb-1">
+                <label className="form-label mb-0 flex-center-gap">
+                  <GraduationCap size={14} className="text-amber" />
+                  <span>Academic Department (Program)</span>
+                </label>
+                {selectedProgramId !== 'ALL' && (
+                  <button
+                    type="button"
+                    className="text-btn-subtle"
+                    onClick={() => handleProgramChange('ALL')}
+                  >
+                    Reset (Show All Departments)
+                  </button>
+                )}
+              </div>
+              <select
+                className="form-select"
+                value={selectedProgramId}
+                onChange={(e) => handleProgramChange(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
+              >
+                <option value="ALL">-- All Departments (Common Core & All Programs) --</option>
+                {programs.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.code} - {p.name}
+                  </option>
+                ))}
+              </select>
+              {selectedProgramId !== 'ALL' && (
+                <div className="text-xs text-muted mt-1">
+                  Filtering subjects: showing only subjects belonging to{' '}
+                  <strong>{programs.find((p) => p.id === selectedProgramId)?.name || 'this department'}</strong>{' '}
+                  ({availableCourses.length} available)
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Section / Group selector */}
           <div className="form-group">
             <label className="form-label">
-              Section / Group {sessionType === 'LECTURE' ? '(Disabled for Lectures)' : '*'}
+              Cohort Group / Section {sessionType === 'LECTURE' ? '(Optional: Leave blank for Whole Cohort)' : '*'}
             </label>
             <select
               className="form-select"
               value={sectionId}
-              disabled={sessionType === 'LECTURE'}
-              onChange={(e) => setSectionId(e.target.value ? Number(e.target.value) : '')}
+              onChange={(e) => handleSectionChange(e.target.value)}
               required={sessionType === 'SECTION'}
             >
               <option value="">
-                {sessionType === 'LECTURE' ? 'All Sections (Whole Batch)' : '-- Select Section --'}
+                {sessionType === 'LECTURE' ? 'Whole Cohort (All Groups Combined)' : '-- Select Section / Group --'}
               </option>
               {programs && programs.length > 0 ? (
                 <>
@@ -585,16 +676,53 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
               <span>Course / Subject</span>
             </label>
             <select
-              className="form-select"
+              className={`form-select ${
+                conflictResult.conflictType === 'COURSE_DEPENDENCY' ? 'border-danger' : ''
+              }`}
               value={courseId}
               onChange={(e) => setCourseId(Number(e.target.value))}
             >
-              {availableCourses.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.code} - {c.name}
-                </option>
-              ))}
+              {availableCourses.map((c) => {
+                const prereqCodes =
+                  c.prerequisiteIds && c.prerequisiteIds.length > 0
+                    ? c.prerequisiteIds.map((pid) => courses.find((x) => x.id === pid)?.code || pid).join(', ')
+                    : null;
+                const progTag = c.programCode ? `[${c.programCode}]` : '[Common]';
+                const secTag = c.hasSections === false ? ' [Lecture Only]' : '';
+                return (
+                  <option key={c.id} value={c.id}>
+                    {c.code} - {c.name} {progTag}{secTag} {prereqCodes ? `[Prereq: ${prereqCodes}]` : ''}
+                  </option>
+                );
+              })}
             </select>
+            {(() => {
+              const currentCourse = courses.find((c) => c.id === courseId);
+              if (currentCourse?.hasSections === false && sessionType === 'SECTION') {
+                return (
+                  <div className="text-xs text-amber mt-1 flex-center-gap">
+                    <AlertTriangle size={12} className="shrink-0 text-amber" />
+                    <span>
+                      Notice: <strong>{currentCourse.code}</strong> is configured as <strong>Lecture Only</strong> (no tutorial/lab sections).
+                    </span>
+                  </div>
+                );
+              }
+              if (currentCourse?.prerequisiteIds && currentCourse.prerequisiteIds.length > 0) {
+                const prereqNames = currentCourse.prerequisiteIds
+                  .map((pid) => courses.find((x) => x.id === pid)?.code || pid)
+                  .join(', ');
+                return (
+                  <div className="text-xs text-secondary mt-1 flex-center-gap">
+                    <BookOpen size={12} className="text-emerald shrink-0" />
+                    <span>
+                      GPA Prerequisites: <strong>{prereqNames}</strong> (Timing overlap restricted)
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           {/* Professor / TA */}
@@ -604,23 +732,45 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
               <span>Professor / Instructor</span>
             </label>
             <select
-              className="form-select"
+              className={`form-select ${
+                conflictResult.conflictType === 'PROFESSOR' ||
+                conflictResult.conflictType === 'PROFESSOR_AVAILABILITY'
+                  ? 'border-danger'
+                  : ''
+              }`}
               value={professorId}
               onChange={(e) => setProfessorId(Number(e.target.value))}
             >
               <optgroup label="Available Faculty">
                 {professors
-                  .filter((p) => !busyProfessors.has(p.id))
+                  .filter((p) => !busyProfessors.has(p.id) && !unavailableProfessors.has(p.id))
                   .map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.title} {p.name} ({p.department})
                     </option>
                   ))}
               </optgroup>
-              {professors.some((p) => busyProfessors.has(p.id)) && (
+              {professors.some((p) => unavailableProfessors.has(p.id)) && (
+                <optgroup label={`📅 Off-Campus on ${DAYS_OF_WEEK.find((d) => d.value === dayOfWeek)?.label} (Attendance Restriction)`}>
+                  {professors
+                    .filter((p) => unavailableProfessors.has(p.id))
+                    .map((p) => {
+                      const avail = unavailableProfessors.get(p.id);
+                      const allowed = avail?.availableDays
+                        .map((d) => DAYS_OF_WEEK.find((x) => x.value === d)?.label.slice(0, 3) || d)
+                        .join(', ');
+                      return (
+                        <option key={p.id} value={p.id} disabled={true}>
+                          📅 {p.title} {p.name} [OFF-CAMPUS: Attends {allowed} only]
+                        </option>
+                      );
+                    })}
+                </optgroup>
+              )}
+              {professors.some((p) => busyProfessors.has(p.id) && !unavailableProfessors.has(p.id)) && (
                 <optgroup label="⛔ Busy Instructors (Double-Booking Prevented)">
                   {professors
-                    .filter((p) => busyProfessors.has(p.id))
+                    .filter((p) => busyProfessors.has(p.id) && !unavailableProfessors.has(p.id))
                     .map((p) => {
                       const occ = busyProfessors.get(p.id);
                       return (
@@ -632,6 +782,16 @@ export const ScheduleDialog: FC<ScheduleDialogProps> = ({
                 </optgroup>
               )}
             </select>
+            {unavailableProfessors.has(professorId) && (
+              <div className="text-xs text-amber mt-1 flex-center-gap">
+                <AlertTriangle size={12} />
+                <span>
+                  {professors.find((p) => p.id === professorId)?.title}{' '}
+                  {professors.find((p) => p.id === professorId)?.name} is not on campus on{' '}
+                  {DAYS_OF_WEEK.find((d) => d.value === dayOfWeek)?.label}.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Room Selection with Disabled Conflict Rooms */}

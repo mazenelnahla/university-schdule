@@ -5,6 +5,7 @@ import { ScheduleDialog } from './components/ScheduleDialog';
 import { LoginModal } from './components/LoginModal';
 import { AdminHubPage } from './components/AdminHubPage';
 import { PrintTimetableModal } from './components/PrintTimetableModal';
+import { AutoScheduleModal } from './components/AutoScheduleModal';
 import type {
   AcademicYear,
   Program,
@@ -67,6 +68,7 @@ export function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isAutoScheduleModalOpen, setIsAutoScheduleModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleWithDetails | null>(null);
   const [dialogSlotProps, setDialogSlotProps] = useState<{
     dayOfWeek?: number;
@@ -74,6 +76,7 @@ export function App() {
     yearId?: number;
     sectionId?: number;
     roomId?: number;
+    programId?: number | 'ALL';
   }>({});
 
   // Load all data from SQLite
@@ -193,7 +196,7 @@ export function App() {
   const handleOpenNewSchedule = (
     dayOfWeek: number = 0,
     periodId?: number,
-    extra?: { roomId?: number; yearId?: number; sectionId?: number }
+    extra?: { roomId?: number; yearId?: number; sectionId?: number; programId?: number | 'ALL' }
   ) => {
     setEditingSchedule(null);
     setDialogSlotProps({
@@ -202,6 +205,7 @@ export function App() {
       yearId: extra?.yearId || (typeof selectedYearId === 'number' ? selectedYearId : years[0]?.id),
       sectionId: extra?.sectionId,
       roomId: extra?.roomId,
+      programId: extra?.programId,
     });
     setIsScheduleDialogOpen(true);
   };
@@ -261,6 +265,13 @@ export function App() {
         onClearTimetable={handleClearTimetable}
         onLoadSampleDb={handleLoadSampleDb}
         onRefreshData={loadData}
+        onOpenAutoSchedule={() => {
+          if (!adminUser) {
+            setIsLoginModalOpen(true);
+          } else {
+            setIsAutoScheduleModalOpen(true);
+          }
+        }}
       />
 
       {/* Main Page: Timetable or Admin Hub Page */}
@@ -283,6 +294,13 @@ export function App() {
             onAddNewSlot={handleOpenNewSchedule}
             onClearTimetable={handleClearTimetable}
             onOpenPrint={() => setIsPrintModalOpen(true)}
+            onOpenAutoSchedule={() => {
+              if (!adminUser) {
+                setIsLoginModalOpen(true);
+              } else {
+                setIsAutoScheduleModalOpen(true);
+              }
+            }}
           />
         </main>
       ) : (
@@ -296,6 +314,7 @@ export function App() {
             programs={programs}
             onDataChanged={loadData}
             onBackToTimetable={() => setCurrentPage('TIMETABLE')}
+            onOpenAutoSchedule={() => setIsAutoScheduleModalOpen(true)}
           />
         </main>
       )}
@@ -315,6 +334,7 @@ export function App() {
         initialDayOfWeek={dialogSlotProps.dayOfWeek}
         initialPeriodId={dialogSlotProps.periodId}
         initialYearId={dialogSlotProps.yearId}
+        initialProgramId={dialogSlotProps.programId}
         editingSchedule={editingSchedule}
       />
 
@@ -331,6 +351,16 @@ export function App() {
         standardPeriods={standardPeriods}
         schedules={schedules}
         initialYearId={selectedYearId}
+      />
+
+      {/* Auto-Schedule Timetable Modal */}
+      <AutoScheduleModal
+        isOpen={isAutoScheduleModalOpen}
+        onClose={() => setIsAutoScheduleModalOpen(false)}
+        years={years}
+        courses={courses}
+        initialYearId={selectedYearId}
+        onSuccess={loadData}
       />
 
       {/* Admin Login Modal */}

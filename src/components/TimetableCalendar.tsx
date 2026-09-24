@@ -11,7 +11,9 @@ import {
   Search,
   Printer,
   CalendarX,
+  Calendar,
   GraduationCap,
+  Sparkles,
 } from 'lucide-react';
 import type {
   AcademicYear,
@@ -50,9 +52,10 @@ interface TimetableCalendarProps {
   adminUser: AdminUser | null;
   onEditSchedule: (schedule: ScheduleWithDetails) => void;
   onDeleteSchedule: (id: number) => void;
-  onAddNewSlot: (dayOfWeek: number, periodId?: number, extra?: { roomId?: number; yearId?: number; sectionId?: number }) => void;
+  onAddNewSlot: (dayOfWeek: number, periodId?: number, extra?: { roomId?: number; yearId?: number; sectionId?: number; programId?: number | 'ALL' }) => void;
   onOpenPrint?: () => void;
   onClearTimetable?: () => void;
+  onOpenAutoSchedule?: () => void;
 }
 
 export const TimetableCalendar: FC<TimetableCalendarProps> = ({
@@ -72,13 +75,42 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
   onAddNewSlot,
   onOpenPrint,
   onClearTimetable,
+  onOpenAutoSchedule,
 }) => {
   const [selectedDay, setSelectedDay] = useState<number>(0); // 0 = Sunday
-  const [isFullWeekView, setIsFullWeekView] = useState<boolean>(false);
+  const [isFullWeekView, setIsFullWeekView] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedProgramFilter, setSelectedProgramFilter] = useState<number | 'ALL'>('ALL');
+  const [selectedSectionFilter, setSelectedSectionFilter] = useState<number | 'ALL'>('ALL');
 
-  // Filter schedules based on search term and optional room/prof/program filters
+  const [prevYearId, setPrevYearId] = useState(selectedYearId);
+  if (prevYearId !== selectedYearId) {
+    setPrevYearId(selectedYearId);
+    setSelectedSectionFilter('ALL');
+  }
+
+  // Helper to trigger adding a slot with the active program and section filter pre-populated
+  const handleSlotAdd = (
+    dayOfWeek: number,
+    periodId?: number,
+    extra?: { roomId?: number; yearId?: number; sectionId?: number; programId?: number | 'ALL' }
+  ) => {
+    const progId =
+      extra?.programId !== undefined
+        ? extra.programId
+        : selectedProgramFilter !== 'ALL'
+        ? selectedProgramFilter
+        : undefined;
+    const secId =
+      extra?.sectionId !== undefined
+        ? extra.sectionId
+        : selectedSectionFilter !== 'ALL'
+        ? selectedSectionFilter
+        : undefined;
+    onAddNewSlot(dayOfWeek, periodId, { ...extra, programId: progId, sectionId: secId });
+  };
+
+  // Filter schedules based on search term and optional room/prof/program/section filters
   const filteredSchedules = useMemo(() => {
     return schedules.filter((s) => {
       // Search term
@@ -100,19 +132,32 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
         if (s.academicYearId !== selectedYearId) return false;
       }
 
-      // Program filter (applies to sections, lectures affect all programs)
+      // Program filter (applies to sections and program-specific lectures)
       if (selectedProgramFilter !== 'ALL') {
         if (s.sectionId !== null) {
           const sec = sections.find((secItem) => secItem.id === s.sectionId);
-          if (sec && sec.programId !== selectedProgramFilter) {
+          if (sec && sec.programId && sec.programId !== selectedProgramFilter) {
+            return false;
+          }
+        } else {
+          // Lecture: if the course belongs to a specific program, check match
+          if (s.courseProgramId && s.courseProgramId !== selectedProgramFilter) {
             return false;
           }
         }
       }
 
+      // Section / Group filter (e.g. Preparatory Year Group A vs Group B tables)
+      if (selectedSectionFilter !== 'ALL') {
+        // Show sessions matching this section or general whole-batch lectures
+        if (s.sectionId !== null && s.sectionId !== selectedSectionFilter) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [schedules, searchTerm, viewMode, selectedYearId, selectedProgramFilter, sections]);
+  }, [schedules, searchTerm, viewMode, selectedYearId, selectedProgramFilter, selectedSectionFilter, sections]);
 
   // Find matching items for a given cell (day, period, and category row)
   const getSchedulesForSlot = (dayId: number, period: StandardPeriod, rowContext?: { yearId?: number; sectionId?: number; roomId?: number; professorId?: number }) => {
@@ -200,6 +245,18 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
             />
           </div>
 
+          {/* Auto Gen Tables by Semester Button */}
+          {onOpenAutoSchedule && (
+            <button
+              onClick={onOpenAutoSchedule}
+              className="action-btn primary-btn auto-gen-trigger-btn highlight-glow"
+              title="Auto-Generate complete conflict-free timetables by semester (Fall / Spring)"
+            >
+              <Sparkles size={15} className="text-amber-400" />
+              <span>Auto Gen Tables</span>
+            </button>
+          )}
+
           {/* Print Timetable Trigger Button */}
           {onOpenPrint && (
             <button
@@ -264,14 +321,14 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
           <div className="program-selection-strip">
             <div className="program-strip-label">
               <GraduationCap size={16} className="text-primary" />
-              <span className="font-semibold text-xs text-secondary">Program View:</span>
+              <span className="font-semibold text-xs text-secondary">Department View:</span>
             </div>
             <div className="program-pills-row">
               <button
                 className={`program-filter-pill ${selectedProgramFilter === 'ALL' ? 'active' : ''}`}
                 onClick={() => setSelectedProgramFilter('ALL')}
               >
-                All Programs ({programs.length})
+                All Departments ({programs.length})
               </button>
               {programs
                 .filter((p) => selectedYearId === 'ALL' || activeSections.some((s) => s.programId === p.id))
@@ -290,11 +347,28 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
         ) : (
           <div className="program-selection-strip">
             <div className="program-strip-label">
-              <GraduationCap size={16} className="text-primary" />
-              <span className="font-semibold text-xs text-secondary">General Cohort:</span>
+              <Users size={16} className="text-primary" />
+              <span className="font-semibold text-xs text-secondary">
+                {selectedYearId === 5 ? 'Prep Cohort Groups:' : 'Cohort Groups:'}
+              </span>
             </div>
-            <div className="text-xs text-secondary font-medium">
-              Common Preparatory Year • No specific program tracks assigned
+            <div className="program-pills-row">
+              <button
+                className={`program-filter-pill ${selectedSectionFilter === 'ALL' ? 'active' : ''}`}
+                onClick={() => setSelectedSectionFilter('ALL')}
+              >
+                All Groups (Both Tables)
+              </button>
+              {activeSections.map((sec) => (
+                <button
+                  key={sec.id}
+                  className={`program-filter-pill ${selectedSectionFilter === sec.id ? 'active' : ''}`}
+                  onClick={() => setSelectedSectionFilter(sec.id)}
+                >
+                  <span className="prog-pill-code">{sec.name}</span>
+                  <span>{sec.name} Table</span>
+                </button>
+              ))}
             </div>
           </div>
         )
@@ -341,7 +415,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                             {items.length === 0 && adminUser && (
                               <button
                                 className="add-slot-btn"
-                                onClick={() => onAddNewSlot(d.id, p.id)}
+                                onClick={() => handleSlotAdd(d.id, p.id)}
                                 title={`Schedule session on ${d.name} at ${p.startTime}`}
                               >
                                 <Plus size={14} />
@@ -426,7 +500,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                                 <button
                                   className="add-slot-btn"
                                   onClick={() =>
-                                    onAddNewSlot(
+                                    handleSlotAdd(
                                       selectedDay,
                                       p.id,
                                       { yearId: typeof selectedYearId === 'number' ? selectedYearId : years[0]?.id }
@@ -457,10 +531,9 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                                 <td colSpan={1 + standardPeriods.length} className="td-program-divider">
                                   <div className="program-divider-content">
                                     <GraduationCap size={16} className="prog-div-icon" />
-                                    <span className="program-divider-title">{prog.name} ({prog.code})</span>
-                                    <span className="program-divider-dept">• {prog.department}</span>
+                                    <span className="program-divider-title">Department: {prog.name} ({prog.code})</span>
                                     <span className="program-sec-count">
-                                      {progSections.length} Program Section{progSections.length === 1 ? '' : 's'}
+                                      {progSections.length} Department Section{progSections.length === 1 ? '' : 's'}
                                     </span>
                                   </div>
                                 </td>
@@ -499,7 +572,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                                             <button
                                               className="add-slot-btn"
                                               onClick={() =>
-                                                onAddNewSlot(selectedDay, p.id, {
+                                                handleSlotAdd(selectedDay, p.id, {
                                                   yearId: sec.yearId,
                                                   sectionId: sec.id,
                                                 })
@@ -520,18 +593,24 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                         })}
 
                         {/* Any unassigned / general sections */}
-                        {activeSections.filter((s) => !s.programId).length > 0 && (
+                        {activeSections.filter((s) => !s.programId && (selectedSectionFilter === 'ALL' || s.id === selectedSectionFilter)).length > 0 && (
                           <Fragment key="general-cohort-sections">
                             <tr className="program-divider-row">
                               <td colSpan={1 + standardPeriods.length} className="td-program-divider">
                                 <div className="program-divider-content">
                                   <Layers size={15} className="prog-div-icon" />
-                                  <span className="program-divider-title">General Cohort Sections</span>
+                                  <span className="program-divider-title">
+                                    {selectedYearId === 5
+                                      ? selectedSectionFilter === 'ALL'
+                                        ? 'Preparatory Year Parallel Tables (Group A & Group B)'
+                                        : `${activeSections.find((s) => s.id === selectedSectionFilter)?.name || ''} Timetable Table`
+                                      : 'General Cohort Sections'}
+                                  </span>
                                 </div>
                               </td>
                             </tr>
                             {activeSections
-                              .filter((s) => !s.programId)
+                              .filter((s) => !s.programId && (selectedSectionFilter === 'ALL' || s.id === selectedSectionFilter))
                               .map((sec) => (
                                 <tr key={sec.id} className="grid-row">
                                   <td className="td-entity-header">
@@ -566,7 +645,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                                             <button
                                               className="add-slot-btn"
                                               onClick={() =>
-                                                onAddNewSlot(selectedDay, p.id, {
+                                                handleSlotAdd(selectedDay, p.id, {
                                                   yearId: sec.yearId,
                                                   sectionId: sec.id,
                                                 })
@@ -620,7 +699,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                                     <button
                                       className="add-slot-btn"
                                       onClick={() =>
-                                        onAddNewSlot(selectedDay, p.id, {
+                                        handleSlotAdd(selectedDay, p.id, {
                                           yearId: sec.yearId,
                                           sectionId: sec.id,
                                         })
@@ -657,7 +736,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                             <span>{room.code}</span>
                           </div>
                           <div className="entity-subtitle">
-                            {room.name} • {room.building} (Cap: {room.capacity})
+                            {room.name} • {room.building}{room.floor !== undefined ? ` • Floor ${room.floor}` : ''} (Cap: {room.capacity})
                           </div>
                         </td>
                         {standardPeriods.map((p) => {
@@ -683,7 +762,7 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                                   <button
                                     className="add-slot-btn"
                                     onClick={() =>
-                                      onAddNewSlot(selectedDay, p.id, { roomId: room.id })
+                                      handleSlotAdd(selectedDay, p.id, { roomId: room.id })
                                     }
                                   >
                                     <Plus size={14} />
@@ -710,51 +789,88 @@ export const TimetableCalendar: FC<TimetableCalendarProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    professors.map((prof) => (
-                      <tr key={prof.id} className="grid-row">
-                        <td className="td-entity-header">
-                          <div className="entity-title font-bold flex-center-gap">
-                            <User size={16} className="text-indigo" />
-                            <span>{prof.title} {prof.name}</span>
-                          </div>
-                          <div className="entity-subtitle">
-                            {prof.department} • {prof.office || 'Campus'}
-                          </div>
-                        </td>
-                        {standardPeriods.map((p) => {
-                          const items = filteredSchedules.filter(
-                            (s) =>
-                              s.dayOfWeek === selectedDay &&
-                              s.professorId === prof.id &&
-                              timesOverlap(s.startTime, s.endTime, p.startTime, p.endTime)
-                          );
-                          return (
-                            <td key={p.id} className="td-slot">
-                              <div className="slot-container">
-                                {items.map((item) => (
-                                  <ScheduleCard
-                                    key={item.id}
-                                    schedule={item}
-                                    adminUser={adminUser}
-                                    onEdit={() => onEditSchedule(item)}
-                                    onDelete={() => onDeleteSchedule(item.id)}
-                                  />
-                                ))}
-                                {items.length === 0 && adminUser && (
-                                  <button
-                                    className="add-slot-btn"
-                                    onClick={() => onAddNewSlot(selectedDay, p.id)}
-                                  >
-                                    <Plus size={14} />
-                                    <span>Assign</span>
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))
+                    professors.map((prof) => {
+                      const isOffCampus = Boolean(
+                        prof.availableDays &&
+                        prof.availableDays.length > 0 &&
+                        !prof.availableDays.includes(selectedDay)
+                      );
+                      const allowedDaysStr = prof.availableDays
+                        ? prof.availableDays.map((d) => DAYS.find((x) => x.id === d)?.short || d).join(', ')
+                        : '';
+
+                      return (
+                        <tr key={prof.id} className={`grid-row ${isOffCampus ? 'row-off-campus' : ''}`}>
+                          <td className="td-entity-header">
+                            <div className="entity-title font-bold flex-center-gap">
+                              <User size={16} className={isOffCampus ? 'text-muted' : 'text-indigo'} />
+                              <span>{prof.title} {prof.name}</span>
+                              {isOffCampus && (
+                                <span className="off-campus-badge" title={`Off-Campus: Attends ${allowedDaysStr} only`}>
+                                  Off-Campus
+                                </span>
+                              )}
+                            </div>
+                            <div className="entity-subtitle">
+                              {prof.department} • {prof.office || 'Campus'}
+                              {prof.availableDays && prof.availableDays.length > 0 && prof.availableDays.length < 7 && (
+                                <span className="prof-row-days-note" title="Assigned campus attendance days">
+                                  <Calendar size={11} style={{ display: 'inline', marginRight: '3px', verticalAlign: 'middle' }} />
+                                  <span>Days: {allowedDaysStr}</span>
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          {standardPeriods.map((p) => {
+                            const items = filteredSchedules.filter(
+                              (s) =>
+                                s.dayOfWeek === selectedDay &&
+                                s.professorId === prof.id &&
+                                timesOverlap(s.startTime, s.endTime, p.startTime, p.endTime)
+                            );
+                            return (
+                              <td key={p.id} className={`td-slot ${isOffCampus ? 'td-slot-off-campus' : ''}`}>
+                                <div className="slot-container">
+                                  {items.map((item) => (
+                                    <ScheduleCard
+                                      key={item.id}
+                                      schedule={item}
+                                      adminUser={adminUser}
+                                      onEdit={() => onEditSchedule(item)}
+                                      onDelete={() => onDeleteSchedule(item.id)}
+                                    />
+                                  ))}
+                                  {items.length === 0 && (
+                                    isOffCampus ? (
+                                      <div className="slot-off-campus-cell">
+                                        <span>Not Attending</span>
+                                        {adminUser && (
+                                          <button
+                                            className="add-slot-btn-subtle"
+                                            title="Try scheduling (will prompt attendance restriction)"
+                                            onClick={() => handleSlotAdd(selectedDay, p.id)}
+                                          >
+                                            <Plus size={12} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : adminUser ? (
+                                      <button
+                                        className="add-slot-btn"
+                                        onClick={() => handleSlotAdd(selectedDay, p.id)}
+                                      >
+                                        <Plus size={14} />
+                                        <span>Assign</span>
+                                      </button>
+                                    ) : null
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })
                   ))}
               </tbody>
             </table>
@@ -783,7 +899,11 @@ const ScheduleCard: FC<ScheduleCardProps> = ({ schedule, adminUser, onEdit, onDe
     >
       <div className="card-top-row">
         <span className={`session-badge ${isLecture ? 'badge-lecture' : 'badge-section'}`}>
-          {isLecture ? 'Lecture' : schedule.sectionName || 'Section'}
+          {isLecture
+            ? schedule.sectionName
+              ? `Lec (${schedule.sectionName})`
+              : 'Lecture'
+            : schedule.sectionName || 'Section'}
         </span>
         <span className="card-time">
           {schedule.startTime} - {schedule.endTime}
@@ -796,9 +916,23 @@ const ScheduleCard: FC<ScheduleCardProps> = ({ schedule, adminUser, onEdit, onDe
       </div>
 
       <div className="card-meta">
-        <div className="meta-pill room-pill" title={`Capacity: ${schedule.roomCapacity}, ${schedule.building}`}>
+        <div
+          className="meta-pill room-pill"
+          title={`Capacity: ${schedule.roomCapacity} • ${schedule.building}${
+            schedule.roomFloor !== undefined || schedule.floor !== undefined
+              ? ` • Floor ${schedule.roomFloor ?? schedule.floor}`
+              : ''
+          }`}
+        >
           <Building size={12} />
           <span>{schedule.roomCode}</span>
+          {(schedule.roomFloor !== undefined || schedule.floor !== undefined) && (
+            <span className="room-floor-pill">
+              {(schedule.roomFloor ?? schedule.floor) === 0
+                ? 'G'
+                : `Fl. ${schedule.roomFloor ?? schedule.floor}`}
+            </span>
+          )}
         </div>
         <div className="meta-pill prof-pill" title={schedule.professorName}>
           <User size={12} />

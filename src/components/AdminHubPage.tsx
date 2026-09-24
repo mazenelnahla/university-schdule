@@ -13,6 +13,13 @@ import {
   ArrowLeft,
   Search,
   Filter,
+  Calendar,
+  RefreshCw,
+  Sparkles,
+  Users,
+  Plus,
+  Check,
+  X,
 } from 'lucide-react';
 import type {
   Professor,
@@ -22,6 +29,7 @@ import type {
   Section,
   Program,
   RoomType,
+  TargetGroup,
 } from '../db/schema';
 import {
   addProfessor,
@@ -31,11 +39,15 @@ import {
   updateRoom,
   deleteRoom,
   addCourse,
+  updateCourse,
   deleteCourse,
+  updateCourseTargetGroup,
+  updateCourseHasSections,
   addSection,
   deleteSection,
   addProgram,
   deleteProgram,
+  syncAiCurriculumFromTemplate,
 } from '../db/scheduleService';
 
 interface AdminHubPageProps {
@@ -47,6 +59,7 @@ interface AdminHubPageProps {
   programs: Program[];
   onDataChanged: () => void;
   onBackToTimetable: () => void;
+  onOpenAutoSchedule?: () => void;
 }
 
 export const AdminHubPage: FC<AdminHubPageProps> = ({
@@ -58,6 +71,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   programs,
   onDataChanged,
   onBackToTimetable,
+  onOpenAutoSchedule,
 }) => {
   const [activeTab, setActiveTab] = useState<'ROOMS' | 'PROFESSORS' | 'COURSES' | 'SECTIONS' | 'PROGRAMS'>('ROOMS');
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -70,6 +84,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   const [profEmail, setProfEmail] = useState('');
   const [profPhone, setProfPhone] = useState('');
   const [profOffice, setProfOffice] = useState('');
+  const [profAvailableDays, setProfAvailableDays] = useState<number[]>([]);
   const [editingProfId, setEditingProfId] = useState<number | null>(null);
 
   // Rooms Form State
@@ -85,9 +100,19 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   const [courseCode, setCourseCode] = useState('');
   const [courseName, setCourseName] = useState('');
   const [courseCredits, setCourseCredits] = useState(3);
-  const [courseDept, setCourseDept] = useState('Computer Science');
   const [courseYearId, setCourseYearId] = useState<number>(years[0]?.id || 1);
+  const [courseProgramId, setCourseProgramId] = useState<number | ''>('');
   const [courseColor, setCourseColor] = useState('#3b82f6');
+  const [coursePrerequisites, setCoursePrerequisites] = useState<number[]>([]);
+  const [courseSemester, setCourseSemester] = useState<1 | 2>(1);
+  const [courseTargetGroup, setCourseTargetGroup] = useState<TargetGroup>('ALL');
+  const [courseHasSections, setCourseHasSections] = useState<boolean>(true);
+  const [editingCourseId, setEditingCourseId] = useState<number | null>(null);
+  const [courseProgramFilter, setCourseProgramFilter] = useState<number | 'ALL' | 'BASIC_SCIENCES'>('ALL');
+  const [courseSemesterFilter, setCourseSemesterFilter] = useState<'ALL' | 1 | 2>('ALL');
+  const [courseTargetGroupFilter, setCourseTargetGroupFilter] = useState<'ALL' | 'GROUP_A' | 'GROUP_B'>('ALL');
+  const [courseSectionsFilter, setCourseSectionsFilter] = useState<'ALL' | 'HAS_SECTIONS' | 'NO_SECTIONS'>('ALL');
+  const [courseSortBy, setCourseSortBy] = useState<'YEAR_SEM' | 'PROGRAM' | 'CODE' | 'NAME'>('YEAR_SEM');
 
   // Sections Form State
   const [secYearId, setSecYearId] = useState<number>(years[0]?.id || 1);
@@ -98,12 +123,17 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   // Programs Form State
   const [progCode, setProgCode] = useState('');
   const [progName, setProgName] = useState('');
-  const [progDept, setProgDept] = useState('Department of Computer Science');
 
   const showStatus = (text: string, type: 'success' | 'error' = 'success') => {
     setStatusMessage({ type, text });
     setTimeout(() => setStatusMessage(null), 3500);
   };
+
+  const isBasicSciencesCourse = (c: Course) =>
+    !c.programId ||
+    c.department === 'Basic Sciences' ||
+    c.yearId === 5 ||
+    (c.code && c.code.startsWith('BSC'));
 
   // Filtered lists
   const filteredRooms = useMemo(() => {
@@ -119,10 +149,66 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   }, [professors, searchQuery]);
 
   const filteredCourses = useMemo(() => {
-    if (!searchQuery) return courses;
-    const q = searchQuery.toLowerCase();
-    return courses.filter((c) => c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q) || c.department.toLowerCase().includes(q));
-  }, [courses, searchQuery]);
+    let result = [...courses];
+    if (courseProgramFilter === 'BASIC_SCIENCES') {
+      result = result.filter(isBasicSciencesCourse);
+    } else if (courseProgramFilter !== 'ALL') {
+      result = result.filter((c) => c.programId === courseProgramFilter);
+    }
+    if (courseSemesterFilter !== 'ALL') {
+      result = result.filter((c) => (c.semester || 1) === courseSemesterFilter);
+    }
+    if (courseTargetGroupFilter !== 'ALL') {
+      result = result.filter((c) => (c.targetGroup || 'ALL') === courseTargetGroupFilter);
+    }
+    if (courseSectionsFilter === 'HAS_SECTIONS') {
+      result = result.filter((c) => c.hasSections !== false);
+    } else if (courseSectionsFilter === 'NO_SECTIONS') {
+      result = result.filter((c) => c.hasSections === false);
+    }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (c) =>
+          c.code.toLowerCase().includes(q) ||
+          c.name.toLowerCase().includes(q) ||
+          c.department.toLowerCase().includes(q) ||
+          (c.programCode && c.programCode.toLowerCase().includes(q))
+      );
+    }
+
+    // Apply Sorting
+    return result.sort((a, b) => {
+      if (courseSortBy === 'PROGRAM') {
+        const progA = isBasicSciencesCourse(a) ? '0_Basic Sciences' : a.programCode || a.department;
+        const progB = isBasicSciencesCourse(b) ? '0_Basic Sciences' : b.programCode || b.department;
+        const comp = progA.localeCompare(progB);
+        if (comp !== 0) return comp;
+        return (a.semester || 1) - (b.semester || 1) || a.code.localeCompare(b.code);
+      }
+      if (courseSortBy === 'CODE') {
+        return a.code.localeCompare(b.code);
+      }
+      if (courseSortBy === 'NAME') {
+        return a.name.localeCompare(b.name);
+      }
+      // Default 'YEAR_SEM': Prep Year 5 (Level 0) first, then Year 1..4, then Semester 1 & 2, then Code
+      const rankYear = (yId: number | undefined) => (yId === 5 ? 0 : (yId || 99));
+      const diffYear = rankYear(a.yearId) - rankYear(b.yearId);
+      if (diffYear !== 0) return diffYear;
+      const diffSem = (a.semester || 1) - (b.semester || 1);
+      if (diffSem !== 0) return diffSem;
+      return a.code.localeCompare(b.code);
+    });
+  }, [
+    courses,
+    searchQuery,
+    courseProgramFilter,
+    courseSemesterFilter,
+    courseTargetGroupFilter,
+    courseSectionsFilter,
+    courseSortBy,
+  ]);
 
   const filteredSections = useMemo(() => {
     if (!searchQuery) return sections;
@@ -136,16 +222,17 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     return programs.filter((p) => p.code.toLowerCase().includes(q) || p.name.toLowerCase().includes(q) || p.department.toLowerCase().includes(q));
   }, [programs, searchQuery]);
 
-  // PROGRAM HANDLERS
+  // PROGRAM / DEPARTMENT HANDLERS
   const handleSaveProgram = async (e: FormEvent) => {
     e.preventDefault();
     try {
+      const deptName = progName.trim();
       await addProgram({
         code: progCode.trim().toUpperCase(),
-        name: progName.trim(),
-        department: progDept.trim(),
+        name: deptName,
+        department: deptName, // In this system, the Academic Department name is the program name
       });
-      showStatus('Academic program added successfully!');
+      showStatus('Academic Department / Program added successfully!');
       setProgCode('');
       setProgName('');
       onDataChanged();
@@ -169,6 +256,11 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   const handleSaveProfessor = async (e: FormEvent) => {
     e.preventDefault();
     try {
+      const daysToSave =
+        profAvailableDays.length > 0 && profAvailableDays.length < 7
+          ? [...profAvailableDays].sort((a, b) => a - b)
+          : undefined;
+
       if (editingProfId) {
         await updateProfessor(editingProfId, {
           name: profName.trim(),
@@ -177,6 +269,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           email: profEmail.trim(),
           phone: profPhone.trim() || undefined,
           office: profOffice.trim() || undefined,
+          availableDays: daysToSave,
         });
         showStatus('Professor updated successfully!');
       } else {
@@ -187,6 +280,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           email: profEmail.trim(),
           phone: profPhone.trim() || undefined,
           office: profOffice.trim() || undefined,
+          availableDays: daysToSave,
         });
         showStatus('Professor added successfully!');
       }
@@ -195,6 +289,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
       setProfEmail('');
       setProfPhone('');
       setProfOffice('');
+      setProfAvailableDays([]);
       onDataChanged();
     } catch (err) {
       showStatus((err as Error).message, 'error');
@@ -209,6 +304,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
     setProfEmail(p.email);
     setProfPhone(p.phone || '');
     setProfOffice(p.office || '');
+    setProfAvailableDays(p.availableDays && p.availableDays.length > 0 ? [...p.availableDays] : []);
   };
 
   const handleDeleteProf = async (id: number) => {
@@ -282,17 +378,89 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   const handleSaveCourse = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await addCourse({
-        code: courseCode.trim().toUpperCase(),
-        name: courseName.trim(),
-        creditHours: Number(courseCredits),
-        department: courseDept.trim(),
-        yearId: Number(courseYearId),
-        colorHex: courseColor,
-      });
-      showStatus('Course added successfully!');
+      const progIdToSave = courseProgramId === '' ? null : Number(courseProgramId);
+      const chosenProg = progIdToSave ? programs.find((p) => p.id === progIdToSave) : null;
+      const deptToSave = chosenProg ? chosenProg.name : 'Common Core';
+
+      if (editingCourseId) {
+        await updateCourse(editingCourseId, {
+          code: courseCode.trim().toUpperCase(),
+          name: courseName.trim(),
+          creditHours: Number(courseCredits),
+          department: deptToSave,
+          yearId: Number(courseYearId),
+          programId: progIdToSave,
+          colorHex: courseColor,
+          prerequisiteIds: coursePrerequisites.length > 0 ? coursePrerequisites : undefined,
+          semester: courseSemester,
+          targetGroup: courseTargetGroup,
+          hasSections: courseHasSections,
+        });
+        showStatus('Course updated successfully!');
+      } else {
+        await addCourse({
+          code: courseCode.trim().toUpperCase(),
+          name: courseName.trim(),
+          creditHours: Number(courseCredits),
+          department: deptToSave,
+          yearId: Number(courseYearId),
+          programId: progIdToSave,
+          colorHex: courseColor,
+          prerequisiteIds: coursePrerequisites.length > 0 ? coursePrerequisites : undefined,
+          semester: courseSemester,
+          targetGroup: courseTargetGroup,
+          hasSections: courseHasSections,
+        });
+        showStatus('Course added successfully!');
+      }
+      setEditingCourseId(null);
       setCourseCode('');
       setCourseName('');
+      setCourseProgramId('');
+      setCoursePrerequisites([]);
+      setCourseSemester(1);
+      setCourseTargetGroup('ALL');
+      setCourseHasSections(true);
+      onDataChanged();
+    } catch (err) {
+      showStatus((err as Error).message, 'error');
+    }
+  };
+
+  const handleEditCourse = (c: Course) => {
+    setEditingCourseId(c.id);
+    setCourseCode(c.code);
+    setCourseName(c.name);
+    setCourseCredits(c.creditHours);
+    setCourseYearId(c.yearId);
+    setCourseProgramId(c.programId !== undefined && c.programId !== null ? c.programId : '');
+    setCourseColor(c.colorHex || '#3b82f6');
+    setCoursePrerequisites(c.prerequisiteIds || []);
+    setCourseSemester((c.semester === 2 ? 2 : 1) as 1 | 2);
+    setCourseTargetGroup(c.targetGroup || 'ALL');
+    setCourseHasSections(c.hasSections !== false);
+  };
+
+  const handleQuickToggleTargetGroup = async (c: Course) => {
+    try {
+      const current = c.targetGroup || 'ALL';
+      const nextGroup: TargetGroup = current === 'ALL' ? 'GROUP_A' : current === 'GROUP_A' ? 'GROUP_B' : 'ALL';
+      await updateCourseTargetGroup(c.id, nextGroup);
+      const label = nextGroup === 'ALL' ? 'Both Groups (A & B)' : nextGroup === 'GROUP_A' ? 'Group A Only' : 'Group B Only';
+      showStatus(`Updated ${c.code} cohort: ${label}`);
+      onDataChanged();
+    } catch (err) {
+      showStatus((err as Error).message, 'error');
+    }
+  };
+
+  const handleQuickToggleHasSections = async (c: Course) => {
+    try {
+      const nextVal = c.hasSections === false;
+      await updateCourseHasSections(c.id, nextVal);
+      showStatus(
+        `Updated ${c.code}: ${nextVal ? 'Has Practical Sections & Labs' : 'Lecture Only (No Sections)'}`
+      );
       onDataChanged();
     } catch (err) {
       showStatus((err as Error).message, 'error');
@@ -300,13 +468,30 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
   };
 
   const handleDeleteCourse = async (id: number) => {
-    if (!window.confirm('Delete this course?')) return;
+    if (!window.confirm('Delete this course? Its scheduled classes will also be deleted.')) return;
     try {
       await deleteCourse(id);
       showStatus('Course deleted.');
       onDataChanged();
     } catch (err) {
       showStatus((err as Error).message, 'error');
+    }
+  };
+
+  const [isSyncingAi, setIsSyncingAi] = useState(false);
+  const handleSyncAiCurriculum = async () => {
+    setIsSyncingAi(true);
+    try {
+      const res = await syncAiCurriculumFromTemplate();
+      showStatus(
+        `AI Curriculum synced from template.xlsx: ${res.insertedCount} added, ${res.updatedCount} updated, ${res.prereqsLinked} prerequisites connected!`,
+        'success'
+      );
+      onDataChanged();
+    } catch (err) {
+      showStatus((err as Error).message, 'error');
+    } finally {
+      setIsSyncingAi(false);
     }
   };
 
@@ -344,10 +529,6 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
       {/* Top Banner Navigation & Quick Stats */}
       <div className="admin-page-header">
         <div className="admin-header-main">
-          <button onClick={onBackToTimetable} className="action-btn secondary-btn back-btn">
-            <ArrowLeft size={16} />
-            <span>Back to Timetable</span>
-          </button>
           <div className="admin-header-title-wrap">
             <div className="admin-badge-icon">
               <ShieldCheck size={26} />
@@ -359,6 +540,10 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
               </p>
             </div>
           </div>
+          <button onClick={onBackToTimetable} className="action-btn secondary-btn back-btn">
+            <ArrowLeft size={16} />
+            <span>Back to Timetable</span>
+          </button>
         </div>
 
         {/* Quick Stats Grid */}
@@ -438,7 +623,7 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
             onClick={() => setActiveTab('PROGRAMS')}
           >
             <GraduationCap size={17} />
-            <span>Degree Programs ({programs.length})</span>
+            <span>Academic Departments ({programs.length})</span>
           </button>
           <button
             className={`admin-main-tab ${activeTab === 'SECTIONS' ? 'active' : ''}`}
@@ -558,18 +743,20 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                   {editingRoomId && (
                     <button
                       type="button"
-                      className="action-btn secondary-btn"
+                      className="admin-cancel-btn"
                       onClick={() => {
                         setEditingRoomId(null);
                         setRoomCode('');
                         setRoomName('');
                       }}
                     >
-                      Cancel
+                      <X size={16} />
+                      <span>Cancel</span>
                     </button>
                   )}
-                  <button type="submit" className="action-btn primary-btn highlight-glow">
-                    {editingRoomId ? 'Update Room Details' : 'Add Room to System'}
+                  <button type="submit" className="admin-submit-btn">
+                    {editingRoomId ? <Check size={16} /> : <Plus size={16} />}
+                    <span>{editingRoomId ? 'Update Room Details' : 'Add Room to System'}</span>
                   </button>
                 </div>
               </form>
@@ -664,15 +851,33 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                   </div>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Department *</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Computer Science"
-                    value={profDept}
-                    onChange={(e) => setProfDept(e.target.value)}
-                    required
-                  />
+                  <label className="form-label">Academic Department *</label>
+                  {programs.length > 0 ? (
+                    <select
+                      className="form-select"
+                      value={profDept}
+                      onChange={(e) => setProfDept(e.target.value)}
+                      required
+                    >
+                      <option value="">-- Select Academic Department --</option>
+                      {programs.map((p) => (
+                        <option key={p.id} value={p.name}>
+                          {p.code} - {p.name}
+                        </option>
+                      ))}
+                      <option value="Basic Sciences">Basic Sciences (Preparatory)</option>
+                      <option value="General Engineering">General Engineering</option>
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Computer Science"
+                      value={profDept}
+                      onChange={(e) => setProfDept(e.target.value)}
+                      required
+                    />
+                  )}
                 </div>
                 <div className="form-group">
                   <label className="form-label">Official Email *</label>
@@ -707,22 +912,112 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Specific Attendance Days */}
+                <div className="form-group prof-days-group">
+                  <div className="flex-between-center mb-1">
+                    <label className="form-label mb-0 flex-center-gap">
+                      <Calendar size={14} className="text-indigo" />
+                      <span>Campus Attendance Days</span>
+                    </label>
+                    <button
+                      type="button"
+                      className="text-btn-subtle"
+                      onClick={() => {
+                        if (profAvailableDays.length === 0 || profAvailableDays.length === 7) {
+                          setProfAvailableDays([0, 1, 2, 3, 4]);
+                        } else {
+                          setProfAvailableDays([]);
+                        }
+                      }}
+                    >
+                      {profAvailableDays.length === 0 || profAvailableDays.length === 7
+                        ? 'Quick: Workdays (Sun-Thu)'
+                        : 'Reset to All Days'}
+                    </button>
+                  </div>
+                  <div className="day-chips-grid">
+                    {[
+                      { id: 0, label: 'Sun', name: 'Sunday' },
+                      { id: 1, label: 'Mon', name: 'Monday' },
+                      { id: 2, label: 'Tue', name: 'Tuesday' },
+                      { id: 3, label: 'Wed', name: 'Wednesday' },
+                      { id: 4, label: 'Thu', name: 'Thursday' },
+                      { id: 5, label: 'Fri', name: 'Friday' },
+                      { id: 6, label: 'Sat', name: 'Saturday' },
+                    ].map((d) => {
+                      const isSelected =
+                        profAvailableDays.length === 0 ||
+                        profAvailableDays.length === 7 ||
+                        profAvailableDays.includes(d.id);
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          className={`day-chip-btn ${isSelected ? 'active' : 'inactive'}`}
+                          title={`${d.name} (${isSelected ? 'Attends Campus' : 'Off-Campus / Conflict'})`}
+                          onClick={() => {
+                            if (profAvailableDays.length === 0 || profAvailableDays.length === 7) {
+                              const remaining = [0, 1, 2, 3, 4, 5, 6].filter((id) => id !== d.id);
+                              setProfAvailableDays(remaining);
+                            } else {
+                              if (profAvailableDays.includes(d.id)) {
+                                const next = profAvailableDays.filter((id) => id !== d.id);
+                                setProfAvailableDays(next);
+                              } else {
+                                const next = [...profAvailableDays, d.id].sort((a, b) => a - b);
+                                if (next.length === 7) {
+                                  setProfAvailableDays([]);
+                                } else {
+                                  setProfAvailableDays(next);
+                                }
+                              }
+                            }
+                          }}
+                        >
+                          {d.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="attendance-hint-text">
+                    {profAvailableDays.length === 0 || profAvailableDays.length === 7 ? (
+                      <span className="text-emerald">✓ Available on campus all days. No attendance day restrictions.</span>
+                    ) : (
+                      <span className="text-amber">
+                        ⚠️ Only available on:{' '}
+                        <strong>
+                          {profAvailableDays
+                            .map((id) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][id])
+                            .join(', ')}
+                        </strong>
+                        . Scheduling on other days will trigger a conflict restriction.
+                      </span>
+                    )}
+                  </div>
+                </div>
+
                 <div className="form-actions-row">
                   {editingProfId && (
                     <button
                       type="button"
-                      className="action-btn secondary-btn"
+                      className="admin-cancel-btn"
                       onClick={() => {
                         setEditingProfId(null);
                         setProfName('');
                         setProfEmail('');
+                        setProfPhone('');
+                        setProfOffice('');
+                        setProfAvailableDays([]);
                       }}
                     >
-                      Cancel
+                      <X size={16} />
+                      <span>Cancel</span>
                     </button>
                   )}
-                  <button type="submit" className="action-btn primary-btn highlight-glow">
-                    {editingProfId ? 'Update Faculty Details' : 'Add Faculty Member'}
+                  <button type="submit" className="admin-submit-btn">
+                    {editingProfId ? <Check size={16} /> : <Plus size={16} />}
+                    <span>{editingProfId ? 'Update Faculty Details' : 'Add Faculty Member'}</span>
                   </button>
                 </div>
               </form>
@@ -755,6 +1050,19 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                           <span>• {p.email}</span>
                           {p.office && <span>• Office: {p.office}</span>}
                         </div>
+                        <div className="entry-attendance-line">
+                          {p.availableDays && p.availableDays.length > 0 && p.availableDays.length < 7 ? (
+                            <span className="attendance-pill restricted" title="Attendance limited to specific days">
+                              <Calendar size={12} />
+                              <span>Attends: {p.availableDays.map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}</span>
+                            </span>
+                          ) : (
+                            <span className="attendance-pill all-days" title="Attends all campus days">
+                              <Calendar size={12} />
+                              <span>Attends: All Days</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="entry-buttons">
                         <button className="icon-btn" onClick={() => handleEditProf(p)} title="Edit">
@@ -779,8 +1087,13 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
               <div className="panel-header">
                 <div className="panel-title-group">
                   <BookOpen size={18} className="text-emerald" />
-                  <h2 className="panel-title-text">Add Course to Curriculum</h2>
+                  <h2 className="panel-title-text">
+                    {editingCourseId ? 'Edit Course Details' : 'Add Course to Curriculum'}
+                  </h2>
                 </div>
+                <span className="panel-badge">
+                  {editingCourseId ? 'Editing Mode' : 'New Course'}
+                </span>
               </div>
 
               <form onSubmit={handleSaveCourse} className="admin-panel-form">
@@ -836,37 +1149,356 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Color Identifier</label>
+                    <label className="form-label">Academic Semester *</label>
+                    <select
+                      className="form-select"
+                      value={courseSemester}
+                      onChange={(e) => setCourseSemester(Number(e.target.value) as 1 | 2)}
+                    >
+                      <option value={1}>Semester 1 (Fall Term)</option>
+                      <option value={2}>Semester 2 (Spring Term)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-row-dept-color">
+                  <div className="form-group">
+                    <label className="form-label">Academic Department (Program)</label>
+                    <select
+                      className="form-select"
+                      value={courseProgramId}
+                      onChange={(e) => setCourseProgramId(e.target.value === '' ? '' : Number(e.target.value))}
+                    >
+                      <option value="">-- Basic Sciences / General Prep (Common Foundation) --</option>
+                      {programs.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.code} - {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Color</label>
                     <input
                       type="color"
                       className="form-color-input"
+                      title="Select Course Color Identifier"
                       value={courseColor}
                       onChange={(e) => setCourseColor(e.target.value)}
                     />
                   </div>
                 </div>
+
                 <div className="form-group">
-                  <label className="form-label">Department</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Computer Science"
-                    value={courseDept}
-                    onChange={(e) => setCourseDept(e.target.value)}
-                    required
-                  />
+                  <div className="flex-between-center mb-1">
+                    <label className="form-label mb-0">Practical Sections / Labs *</label>
+                    <span className="text-xs text-muted">Tutorial / lab sections needed?</span>
+                  </div>
+                  <select
+                    className={`form-select ${courseHasSections ? 'border-emerald' : 'border-amber'}`}
+                    value={courseHasSections ? 'YES' : 'NO'}
+                    onChange={(e) => setCourseHasSections(e.target.value === 'YES')}
+                  >
+                    <option value="YES">✅ Has Sections &amp; Labs (Tutorials)</option>
+                    <option value="NO">🚫 Lecture Only (No Sections)</option>
+                  </select>
                 </div>
-                <button type="submit" className="action-btn primary-btn highlight-glow">
-                  Add Course to System
-                </button>
+
+                <div className="form-group">
+                  <label className="form-label flex-between-center">
+                    <span>Cohort / Group Assignment</span>
+                    <span className="text-xs text-muted">Prep Year Group A / B</span>
+                  </label>
+                  <select
+                    className={`form-select ${courseTargetGroup === 'GROUP_A' ? 'border-emerald' : courseTargetGroup === 'GROUP_B' ? 'border-purple' : ''}`}
+                    value={courseTargetGroup}
+                    onChange={(e) => setCourseTargetGroup(e.target.value as TargetGroup)}
+                  >
+                    <option value="ALL">Both Groups (All Cohorts: Group A & B)</option>
+                    <option value="GROUP_A">Group A Only (Prep Cohort A)</option>
+                    <option value="GROUP_B">Group B Only (Prep Cohort B)</option>
+                  </select>
+                </div>
+
+                {!courseHasSections && (
+                  <div className="target-group-callout text-xs" style={{ borderColor: '#f59e0b', background: 'rgba(245, 158, 11, 0.08)' }}>
+                    📖 <strong>Lecture Only Subject:</strong> This subject does not require section / lab / tutorial slots. Only whole-class lectures will be scheduled.
+                  </div>
+                )}
+
+                {courseTargetGroup !== 'ALL' && (
+                  <div className="target-group-callout text-xs">
+                    💡 <strong>Cohort Alternation Active:</strong> This course will be scheduled for{' '}
+                    <strong className={courseTargetGroup === 'GROUP_A' ? 'text-emerald' : 'text-purple'}>
+                      {courseTargetGroup === 'GROUP_A' ? 'Group A Only' : 'Group B Only'}
+                    </strong>{' '}
+                    in Semester {courseSemester}. Prep Group A and B both complete all subjects across the year, with 2 alternating subjects per semester (e.g. Drawing & Chemistry in S1 for Group A, swapped with Production & CS for Group B).
+                  </div>
+                )}
+
+                {/* Prerequisite / Dependent Subjects (GPA System) */}
+                <div className="form-group course-prereq-group">
+                  <div className="flex-between-center mb-1">
+                    <label className="form-label mb-0 flex-center-gap">
+                      <BookOpen size={14} className="text-emerald" />
+                      <span>Prerequisites / Dependent Subjects (GPA System)</span>
+                    </label>
+                    {coursePrerequisites.length > 0 && (
+                      <button
+                        type="button"
+                        className="text-btn-subtle"
+                        onClick={() => setCoursePrerequisites([])}
+                      >
+                        Clear All ({coursePrerequisites.length})
+                      </button>
+                    )}
+                  </div>
+                  <div className="prereq-chips-container">
+                    {courses
+                      .filter((other) => other.id !== editingCourseId)
+                      .map((other) => {
+                        const isSelected = coursePrerequisites.includes(other.id);
+                        return (
+                          <button
+                            key={other.id}
+                            type="button"
+                            className={`prereq-chip-btn ${isSelected ? 'active' : 'inactive'}`}
+                            onClick={() => {
+                              if (isSelected) {
+                                setCoursePrerequisites(coursePrerequisites.filter((id) => id !== other.id));
+                              } else {
+                                setCoursePrerequisites([...coursePrerequisites, other.id]);
+                              }
+                            }}
+                            title={`${other.code} - ${other.name}`}
+                          >
+                            <span className="prereq-code-text">{other.code}</span>
+                            <span className="prereq-name-text">{other.name}</span>
+                          </button>
+                        );
+                      })}
+                    {courses.filter((other) => other.id !== editingCourseId).length === 0 && (
+                      <span className="text-xs text-muted">No other courses registered yet.</span>
+                    )}
+                  </div>
+                  <div className="prereq-hint-text">
+                    {coursePrerequisites.length > 0 ? (
+                      <span className="text-amber">
+                        🔗 <strong>GPA Conflict Guard:</strong> This course depends on{' '}
+                        {coursePrerequisites
+                          .map((pid) => courses.find((x) => x.id === pid)?.code || pid)
+                          .join(', ')}
+                        . The schedule engine will strictly prevent timing conflicts so students retaking or carrying over prerequisites (e.g. summer courses) can attend both.
+                      </span>
+                    ) : (
+                      <span className="text-muted text-xs">
+                        No prerequisites selected (standalone / introductory subject).
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="form-actions-row">
+                  {editingCourseId && (
+                    <button
+                      type="button"
+                      className="admin-cancel-btn"
+                      onClick={() => {
+                        setEditingCourseId(null);
+                        setCourseCode('');
+                        setCourseName('');
+                        setCourseProgramId('');
+                        setCoursePrerequisites([]);
+                        setCourseSemester(1);
+                        setCourseTargetGroup('ALL');
+                        setCourseHasSections(true);
+                      }}
+                    >
+                      <X size={16} />
+                      <span>Cancel</span>
+                    </button>
+                  )}
+                  <button type="submit" className="admin-submit-btn">
+                    {editingCourseId ? <Check size={16} /> : <Plus size={16} />}
+                    <span>{editingCourseId ? 'Update Course Details' : 'Add Course to Curriculum'}</span>
+                  </button>
+                </div>
               </form>
             </div>
 
             <div className="admin-panel">
-              <div className="panel-header">
-                <div className="panel-title-group">
-                  <Filter size={16} className="text-secondary" />
-                  <h2 className="panel-title-text">Active Courses ({filteredCourses.length})</h2>
+              <div className="panel-header panel-header-stacked">
+                <div className="flex-between-center w-full flex-wrap gap-2">
+                  <div className="panel-title-group">
+                    <Filter size={16} className="text-secondary" />
+                    <h2 className="panel-title-text">Active Courses ({filteredCourses.length})</h2>
+                  </div>
+                  <div className="flex-row-center gap-2">
+                    {onOpenAutoSchedule && (
+                      <button
+                        type="button"
+                        className="action-btn primary-btn highlight-glow"
+                        title="Auto-generate conflict-free timetables by semester"
+                        onClick={onOpenAutoSchedule}
+                        style={{ padding: '0.4rem 0.75rem', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                      >
+                        <Sparkles size={13} className="text-amber-400" />
+                        <span>Auto Gen Tables</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="action-btn secondary-btn"
+                      title="Synchronize all 58 courses and 26 prerequisite dependencies from official template.xlsx"
+                      onClick={handleSyncAiCurriculum}
+                      disabled={isSyncingAi}
+                      style={{ padding: '0.4rem 0.75rem', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                    >
+                      <RefreshCw size={13} className={isSyncingAi ? 'animate-spin' : ''} />
+                      <span>{isSyncingAi ? 'Syncing...' : 'Sync AI Curriculum (Excel)'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="course-filters-wrapper">
+                  <div className="filter-chip-row">
+                    <span className="filter-chip-label">Program:</span>
+                    <div className="filter-chip-items">
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseProgramFilter === 'ALL' ? 'active' : ''}`}
+                        onClick={() => setCourseProgramFilter('ALL')}
+                      >
+                        All Programs ({courses.length})
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn highlight-program ${courseProgramFilter === 'BASIC_SCIENCES' ? 'active' : ''}`}
+                        onClick={() => setCourseProgramFilter('BASIC_SCIENCES')}
+                        title="Basic Sciences foundation subjects (Preparatory Year)"
+                      >
+                        Basic Sciences (Prep) ({courses.filter(isBasicSciencesCourse).length})
+                      </button>
+                      {programs.map((prog) => {
+                        const count = courses.filter((c) => c.programId === prog.id).length;
+                        return (
+                          <button
+                            key={prog.id}
+                            type="button"
+                            className={`filter-badge-btn ${courseProgramFilter === prog.id ? 'active' : ''}`}
+                            onClick={() => setCourseProgramFilter(prog.id)}
+                          >
+                            {prog.code} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="filter-chip-row multi-filter-row">
+                    <div className="filter-subgroup">
+                      <span className="filter-chip-label">Semester:</span>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseSemesterFilter === 'ALL' ? 'active' : ''}`}
+                        onClick={() => setCourseSemesterFilter('ALL')}
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseSemesterFilter === 1 ? 'active' : ''}`}
+                        onClick={() => setCourseSemesterFilter(1)}
+                      >
+                        Sem 1
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseSemesterFilter === 2 ? 'active' : ''}`}
+                        onClick={() => setCourseSemesterFilter(2)}
+                      >
+                        Sem 2
+                      </button>
+                    </div>
+
+                    <div className="filter-subgroup">
+                      <span className="filter-chip-label">Cohort:</span>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseTargetGroupFilter === 'ALL' ? 'active' : ''}`}
+                        onClick={() => setCourseTargetGroupFilter('ALL')}
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn highlight-group-a ${courseTargetGroupFilter === 'GROUP_A' ? 'active' : ''}`}
+                        onClick={() => setCourseTargetGroupFilter('GROUP_A')}
+                      >
+                        Group A
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn highlight-group-b ${courseTargetGroupFilter === 'GROUP_B' ? 'active' : ''}`}
+                        onClick={() => setCourseTargetGroupFilter('GROUP_B')}
+                      >
+                        Group B
+                      </button>
+                    </div>
+
+                    <div className="filter-subgroup">
+                      <span className="filter-chip-label">Sections:</span>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseSectionsFilter === 'ALL' ? 'active' : ''}`}
+                        onClick={() => setCourseSectionsFilter('ALL')}
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseSectionsFilter === 'HAS_SECTIONS' ? 'active' : ''}`}
+                        onClick={() => setCourseSectionsFilter('HAS_SECTIONS')}
+                      >
+                        Has Sections
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn highlight-warning ${courseSectionsFilter === 'NO_SECTIONS' ? 'active' : ''}`}
+                        onClick={() => setCourseSectionsFilter('NO_SECTIONS')}
+                      >
+                        Lecture Only
+                      </button>
+                    </div>
+
+                    <div className="filter-subgroup">
+                      <span className="filter-chip-label">Sort:</span>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseSortBy === 'YEAR_SEM' ? 'active' : ''}`}
+                        onClick={() => setCourseSortBy('YEAR_SEM')}
+                        title="Sort by Academic Level / Year (Prep Year first) and Semester"
+                      >
+                        Year &amp; Sem
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseSortBy === 'PROGRAM' ? 'active' : ''}`}
+                        onClick={() => setCourseSortBy('PROGRAM')}
+                        title="Sort by Program (Basic Sciences prep subjects first, then departments)"
+                      >
+                        By Program
+                      </button>
+                      <button
+                        type="button"
+                        className={`filter-badge-btn ${courseSortBy === 'CODE' ? 'active' : ''}`}
+                        onClick={() => setCourseSortBy('CODE')}
+                        title="Sort alphabetically by Course Code"
+                      >
+                        Code
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -886,13 +1518,75 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                             <span className="code-pill">{c.code}</span>
                             <span className="entry-name">{c.name}</span>
                           </div>
+                          <div className="entry-badges-row">
+                            <span className="code-pill sem-pill" title={`Semester ${c.semester || 1}`}>
+                              Sem {c.semester || 1}
+                            </span>
+                            {c.programCode ? (
+                              <span className="code-pill highlight-program" title={`Program: ${c.programName || c.programCode}`}>
+                                {c.programCode}
+                              </span>
+                            ) : (
+                              <span className="code-pill highlight-program" style={{ background: 'rgba(14, 165, 233, 0.16)', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.35)' }} title="Basic Sciences (Preparatory Year Foundation)">
+                                Basic Sciences (Prep)
+                              </span>
+                            )}
+                            {c.targetGroup === 'GROUP_A' && (
+                              <span className="code-pill highlight-group-a" title="Prep Group A Only in this semester">
+                                Group A Only
+                              </span>
+                            )}
+                            {c.targetGroup === 'GROUP_B' && (
+                              <span className="code-pill highlight-group-b" title="Prep Group B Only in this semester">
+                                Group B Only
+                              </span>
+                            )}
+                            {(c.targetGroup === 'ALL' || !c.targetGroup) && (
+                              <span className="code-pill subtle" title="Assigned to Both Groups (A & B)">
+                                Group A & B
+                              </span>
+                            )}
+                            {c.hasSections === false ? (
+                              <span className="code-pill pill-warning" title="Lecture Only: No practical sections or tutorials">
+                                Lecture Only
+                              </span>
+                            ) : (
+                              <span className="code-pill pill-success" title="Has Lectures and Practical Sections/Labs">
+                                Has Sections
+                              </span>
+                            )}
+                          </div>
                           <div className="entry-sub-line">
                             <span>{yr?.name || 'All Years'}</span>
                             <span>• {c.creditHours} Credits</span>
                             <span>• {c.department}</span>
                           </div>
+                          {c.prerequisiteIds && c.prerequisiteIds.length > 0 && (
+                            <div className="entry-prereq-line">
+                              <span className="prereq-pill" title="Prerequisites for GPA system">
+                                🔗 Depends on: {c.prerequisiteIds.map((pid) => courses.find((x) => x.id === pid)?.code || pid).join(', ')}
+                              </span>
+                            </div>
+                          )}
                         </div>
                         <div className="entry-buttons">
+                          <button
+                            className={`icon-btn group-toggle-btn ${c.hasSections === false ? 'active-group-b' : ''}`}
+                            onClick={() => handleQuickToggleHasSections(c)}
+                            title={`Sections: ${c.hasSections === false ? 'Lecture Only (No Sections)' : 'Has Sections & Labs'}. Click to toggle.`}
+                          >
+                            <Layers size={15} />
+                          </button>
+                          <button
+                            className={`icon-btn group-toggle-btn ${c.targetGroup === 'GROUP_A' ? 'active-group-a' : c.targetGroup === 'GROUP_B' ? 'active-group-b' : ''}`}
+                            onClick={() => handleQuickToggleTargetGroup(c)}
+                            title={`Cohort: ${c.targetGroup === 'GROUP_A' ? 'Group A Only' : c.targetGroup === 'GROUP_B' ? 'Group B Only' : 'Both Groups (A & B)'}. Click to cycle cohort.`}
+                          >
+                            <Users size={15} />
+                          </button>
+                          <button className="icon-btn" onClick={() => handleEditCourse(c)} title="Edit Course">
+                            <Edit2 size={15} />
+                          </button>
                           <button className="icon-btn danger" onClick={() => handleDeleteCourse(c.id)} title="Delete Course">
                             <Trash2 size={15} />
                           </button>
@@ -906,54 +1600,49 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
           </div>
         )}
 
-        {/* 4. ACADEMIC PROGRAMS */}
+        {/* 4. ACADEMIC DEPARTMENTS / PROGRAMS */}
         {activeTab === 'PROGRAMS' && (
           <div className="admin-grid-layout">
             <div className="admin-panel card-glow">
               <div className="panel-header">
                 <div className="panel-title-group">
                   <GraduationCap size={18} className="text-amber" />
-                  <h2 className="panel-title-text">Register Degree Program</h2>
+                  <h2 className="panel-title-text">Register Academic Department (Program)</h2>
                 </div>
               </div>
 
               <form onSubmit={handleSaveProgram} className="admin-panel-form">
                 <div className="form-group">
-                  <label className="form-label">Program Code (Short Identifier) *</label>
+                  <label className="form-label">Department / Program Code (Short Identifier) *</label>
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="e.g. AI, SE, CS, CYBER"
+                    placeholder="e.g. CS, SE, AI, CYBER"
                     value={progCode}
                     onChange={(e) => setProgCode(e.target.value)}
                     required
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Program Name *</label>
+                  <label className="form-label">Academic Department Name (Program Name) *</label>
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="e.g. Artificial Intelligence & Data Science"
+                    placeholder="e.g. Computer Science, Software Engineering"
                     value={progName}
                     onChange={(e) => setProgName(e.target.value)}
                     required
                   />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Academic Department *</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Department of Computer Science"
-                    value={progDept}
-                    onChange={(e) => setProgDept(e.target.value)}
-                    required
-                  />
+                <div className="text-xs text-muted mb-2">
+                  💡 In this institution, the Academic Department name and Degree Program name are the same.
                 </div>
-                <button type="submit" className="action-btn primary-btn highlight-glow">
-                  Register Degree Program
-                </button>
+                <div className="form-actions-row">
+                  <button type="submit" className="admin-submit-btn">
+                    <Plus size={16} />
+                    <span>Register Academic Department</span>
+                  </button>
+                </div>
               </form>
             </div>
 
@@ -961,18 +1650,19 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
               <div className="panel-header">
                 <div className="panel-title-group">
                   <Filter size={16} className="text-secondary" />
-                  <h2 className="panel-title-text">Academic Degree Programs ({filteredPrograms.length})</h2>
+                  <h2 className="panel-title-text">Academic Departments ({filteredPrograms.length})</h2>
                 </div>
               </div>
 
               <div className="admin-page-list">
                 {filteredPrograms.length === 0 ? (
                   <div className="admin-empty-state">
-                    <p>No degree programs registered yet. Use the form to add degree programs (e.g. CS, SE).</p>
+                    <p>No academic departments registered yet. Use the form to add departments.</p>
                   </div>
                 ) : (
                   filteredPrograms.map((p) => {
                     const progSecs = sections.filter((s) => s.programId === p.id);
+                    const progCourses = courses.filter((c) => c.programId === p.id);
                     return (
                       <div key={p.id} className="admin-entry-card">
                         <div className="entry-details">
@@ -981,12 +1671,12 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                             <span className="entry-name">{p.name}</span>
                           </div>
                           <div className="entry-sub-line">
-                            <span>{p.department}</span>
+                            <span>{progCourses.length} Course{progCourses.length === 1 ? '' : 's'}</span>
                             <span>• {progSecs.length} Active Section{progSecs.length === 1 ? '' : 's'}</span>
                           </div>
                         </div>
                         <div className="entry-buttons">
-                          <button className="icon-btn danger" onClick={() => handleDeleteProgram(p.id)} title="Delete Program">
+                          <button className="icon-btn danger" onClick={() => handleDeleteProgram(p.id)} title="Delete Department">
                             <Trash2 size={15} />
                           </button>
                         </div>
@@ -1065,9 +1755,12 @@ export const AdminHubPage: FC<AdminHubPageProps> = ({
                     required
                   />
                 </div>
-                <button type="submit" className="action-btn primary-btn highlight-glow">
-                  Create Section Group
-                </button>
+                <div className="form-actions-row">
+                  <button type="submit" className="admin-submit-btn">
+                    <Plus size={16} />
+                    <span>Create Section Group</span>
+                  </button>
+                </div>
               </form>
             </div>
 

@@ -6,6 +6,7 @@ import {
   LayoutGrid,
   FileSpreadsheet,
   Info,
+  UserCheck,
 } from 'lucide-react';
 import type {
   AcademicYear,
@@ -42,13 +43,28 @@ const WEEK_DAYS = [
   { id: 4, name: 'Thursday', short: 'THU' },
 ];
 
+const isTeachingAssistant = (p: Professor): boolean => {
+  const t = (p.title || '').trim().toLowerCase();
+  const n = (p.name || '').trim().toLowerCase();
+  return (
+    t === 'ta' ||
+    t === 'eng.' ||
+    t === 'eng' ||
+    t.includes('assistant') ||
+    t.includes('ta') ||
+    n.startsWith('eng.') ||
+    n.startsWith('eng ') ||
+    n.toLowerCase().includes('(ta)')
+  );
+};
+
 export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
   isOpen,
   onClose,
   years,
   programs,
   sections,
-  professors: _professors,
+  professors,
   rooms: _rooms,
   courses,
   standardPeriods,
@@ -61,9 +77,18 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
   });
 
   const [selectedProgramId, setSelectedProgramId] = useState<number | 'ALL'>('ALL');
+  const [selectedSectionId, setSelectedSectionId] = useState<number | 'ALL'>('ALL');
+  const [selectedTaId, setSelectedTaId] = useState<number | 'ALL'>('ALL');
+  const [selectedTaYearId, setSelectedTaYearId] = useState<number | 'ALL'>('ALL');
   const [includeSaturday, setIncludeSaturday] = useState<boolean>(false);
-  const [printLayout, setPrintLayout] = useState<'MASTER_GRID' | 'PROGRAM_SHEETS' | 'SECTION_ROWS'>('PROGRAM_SHEETS');
+  const [printLayout, setPrintLayout] = useState<'MASTER_GRID' | 'PROGRAM_SHEETS' | 'SECTION_ROWS' | 'TA_SHEETS'>('PROGRAM_SHEETS');
   const [density, setDensity] = useState<'STANDARD' | 'COMPACT'>('STANDARD');
+
+  // Teaching Assistants pool
+  const teachingAssistants = useMemo(() => {
+    const tas = professors.filter(isTeachingAssistant);
+    return tas.length > 0 ? tas : professors;
+  }, [professors]);
 
   // Active days (Sun-Thu, or Sat-Thu)
   const activeDays = useMemo(() => {
@@ -82,25 +107,35 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
     return programs.find((p) => p.id === selectedProgramId) || null;
   }, [programs, selectedProgramId]);
 
-  // Sections for the selected year (filtered by program if selected)
+  // Sections for the selected year (filtered by program if selected, or group)
   const relevantSections = useMemo(() => {
-    const yearSecs = sections.filter((s) => s.yearId === selectedYearId);
-    if (selectedProgramId === 'ALL') return yearSecs;
-    return yearSecs.filter((s) => s.programId === selectedProgramId);
-  }, [sections, selectedYearId, selectedProgramId]);
+    let yearSecs = sections.filter((s) => s.yearId === selectedYearId);
+    if (selectedProgramId !== 'ALL') {
+      yearSecs = yearSecs.filter((s) => s.programId === selectedProgramId);
+    }
+    if (selectedSectionId !== 'ALL') {
+      yearSecs = yearSecs.filter((s) => s.id === selectedSectionId);
+    }
+    return yearSecs;
+  }, [sections, selectedYearId, selectedProgramId, selectedSectionId]);
 
-  // Schedules matching selected year and program filter
+  // Schedules matching selected year and program/group filter
   const relevantSchedules = useMemo(() => {
     return schedules.filter((s) => {
       if (s.academicYearId !== selectedYearId) return false;
-      // Lectures belong to whole cohort
-      if (s.sectionId === null) return true;
-      // Section check
+      if (selectedSectionId !== 'ALL') {
+        if (s.sectionId !== null && s.sectionId !== selectedSectionId) return false;
+      }
       if (selectedProgramId === 'ALL') return true;
+      // Lectures: check course program
+      if (s.sectionId === null) {
+        return !s.courseProgramId || s.courseProgramId === selectedProgramId;
+      }
+      // Section check
       const sec = sections.find((x) => x.id === s.sectionId);
       return sec?.programId === selectedProgramId;
     });
-  }, [schedules, selectedYearId, selectedProgramId, sections]);
+  }, [schedules, selectedYearId, selectedProgramId, selectedSectionId, sections]);
 
   // Programs that have sections or courses in this year
   const programsInThisYear = useMemo(() => {
@@ -115,12 +150,17 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
     const activeProgs = programsInThisYear.filter((p) => p.yearSections.length > 0);
     if (activeProgs.length === 0) {
       // General year (e.g. Preparatory Year) with no program tracks
-      const generalSecs = sections.filter((s) => s.yearId === selectedYearId);
+      const generalSecs = sections.filter(
+        (s) => s.yearId === selectedYearId && (selectedSectionId === 'ALL' || s.id === selectedSectionId)
+      );
+      const selectedSecObj = selectedSectionId !== 'ALL' ? sections.find((s) => s.id === selectedSectionId) : null;
       return [
         {
           id: 0,
-          code: 'PREP',
-          name: activeYear?.name || 'Preparatory Year',
+          code: selectedSecObj ? selectedSecObj.name.toUpperCase() : '',
+          name: selectedSecObj
+            ? `${activeYear?.name || 'Preparatory Year'} (${selectedSecObj.name} Table)`
+            : activeYear?.name || 'Preparatory Year',
           department: 'Basic Sciences & General Engineering',
           yearSections: generalSecs,
         },
@@ -130,7 +170,7 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
       return activeProgs;
     }
     return activeProgs.filter((p) => p.id === selectedProgramId);
-  }, [programsInThisYear, selectedProgramId, sections, selectedYearId, activeYear]);
+  }, [programsInThisYear, selectedProgramId, selectedSectionId, sections, selectedYearId, activeYear]);
 
   const handlePrint = () => {
     window.print();
@@ -191,54 +231,126 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
         {/* ================= CONTROLS TOOLBAR (HIDDEN IN PRINT) ================= */}
         <div className="print-controls-toolbar no-print">
           <div className="print-controls-group">
-            {/* Academic Year Selection */}
-            <div className="print-control-item">
-              <label htmlFor="print-year-select" className="print-control-label">
-                Academic Year
-              </label>
-              <select
-                id="print-year-select"
-                className="print-control-select"
-                value={selectedYearId}
-                onChange={(e) => setSelectedYearId(Number(e.target.value))}
-              >
-                {years.map((y) => (
-                  <option key={y.id} value={y.id}>
-                    {y.name} ({y.code})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Degree Program Filter */}
-            <div className="print-control-item">
-              <label htmlFor="print-prog-select" className="print-control-label">
-                Degree Program Filter
-              </label>
-              {programsInThisYear.some((p) => p.yearSections.length > 0) ? (
-                <select
-                  id="print-prog-select"
-                  className="print-control-select"
-                  value={selectedProgramId}
-                  onChange={(e) =>
-                    setSelectedProgramId(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))
-                  }
-                >
-                  <option value="ALL">All Programs (Complete Cohort)</option>
-                  {programsInThisYear
-                    .filter((p) => p.yearSections.length > 0)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.code})
+            {printLayout === 'TA_SHEETS' ? (
+              <>
+                {/* Teaching Assistant Selector */}
+                <div className="print-control-item">
+                  <label htmlFor="print-ta-select" className="print-control-label">
+                    Teaching Assistant
+                  </label>
+                  <select
+                    id="print-ta-select"
+                    className="print-control-select"
+                    value={selectedTaId}
+                    onChange={(e) =>
+                      setSelectedTaId(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))
+                    }
+                  >
+                    <option value="ALL">
+                      All Teaching Assistants ({teachingAssistants.length} TAs — 1 Sheet Each)
+                    </option>
+                    {teachingAssistants.map((ta) => (
+                      <option key={ta.id} value={ta.id}>
+                        {ta.name} ({ta.department || 'Faculty Staff'})
                       </option>
                     ))}
-                </select>
-              ) : (
-                <select id="print-prog-select" className="print-control-select" disabled>
-                  <option value="ALL">General Cohort (No Specific Programs)</option>
-                </select>
-              )}
-            </div>
+                  </select>
+                </div>
+
+                {/* Academic Year Scope for TA */}
+                <div className="print-control-item">
+                  <label htmlFor="print-ta-year-select" className="print-control-label">
+                    Academic Year Scope
+                  </label>
+                  <select
+                    id="print-ta-year-select"
+                    className="print-control-select"
+                    value={selectedTaYearId}
+                    onChange={(e) =>
+                      setSelectedTaYearId(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))
+                    }
+                  >
+                    <option value="ALL">All Academic Years (Full Weekly Load)</option>
+                    {years.map((y) => (
+                      <option key={y.id} value={y.id}>
+                        {y.name} ({y.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Academic Year Selection */}
+                <div className="print-control-item">
+                  <label htmlFor="print-year-select" className="print-control-label">
+                    Academic Year
+                  </label>
+                  <select
+                    id="print-year-select"
+                    className="print-control-select"
+                    value={selectedYearId}
+                    onChange={(e) => {
+                      setSelectedYearId(Number(e.target.value));
+                      setSelectedProgramId('ALL');
+                      setSelectedSectionId('ALL');
+                    }}
+                  >
+                    {years.map((y) => (
+                      <option key={y.id} value={y.id}>
+                        {y.name} ({y.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Degree Program or Group Filter */}
+                <div className="print-control-item">
+                  <label htmlFor="print-prog-select" className="print-control-label">
+                    {programsInThisYear.some((p) => p.yearSections.length > 0)
+                      ? 'Degree Program Filter'
+                      : 'Cohort Group Filter'}
+                  </label>
+                  {programsInThisYear.some((p) => p.yearSections.length > 0) ? (
+                    <select
+                      id="print-prog-select"
+                      className="print-control-select"
+                      value={selectedProgramId}
+                      onChange={(e) =>
+                        setSelectedProgramId(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))
+                      }
+                    >
+                      <option value="ALL">All Programs (Complete Cohort)</option>
+                      {programsInThisYear
+                        .filter((p) => p.yearSections.length > 0)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.code})
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <select
+                      id="print-prog-select"
+                      className="print-control-select"
+                      value={selectedSectionId}
+                      onChange={(e) =>
+                        setSelectedSectionId(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))
+                      }
+                    >
+                      <option value="ALL">All Groups (Both Tables)</option>
+                      {sections
+                        .filter((s) => s.yearId === selectedYearId)
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} Table Only
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* Saturday Toggle */}
             <div className="print-control-item print-checkbox-item">
@@ -267,6 +379,15 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
                 >
                   <FileSpreadsheet size={14} />
                   <span>By Program</span>
+                </button>
+                <button
+                  type="button"
+                  className={`layout-pill-btn ${printLayout === 'TA_SHEETS' ? 'active' : ''}`}
+                  onClick={() => setPrintLayout('TA_SHEETS')}
+                  title="Individual accredited timetable sheet per teaching assistant"
+                >
+                  <UserCheck size={14} />
+                  <span>Teaching Assistants</span>
                 </button>
                 <button
                   type="button"
@@ -320,6 +441,9 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
             <strong>Optimal Print Settings:</strong> In your browser print dialog, choose{' '}
             <strong>Landscape</strong> orientation, paper size <strong>A4</strong> or{' '}
             <strong>Letter</strong>, and ensure <strong>"Background Graphics"</strong> is enabled.
+            {printLayout === 'TA_SHEETS' && (
+              <> Multi-page print layout will output each teaching assistant on a separate clean accredited sheet.</>
+            )}
           </span>
         </div>
 
@@ -344,6 +468,9 @@ export const PrintTimetableModal: FC<PrintTimetableModalProps> = ({
             printLayout={printLayout}
             density={density}
             currentDateFormatted={currentDateFormatted}
+            teachingAssistants={teachingAssistants}
+            selectedTaId={selectedTaId}
+            selectedTaYearId={selectedTaYearId}
           />
         </div>
       </div>

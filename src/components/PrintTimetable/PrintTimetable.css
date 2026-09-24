@@ -277,7 +277,8 @@
   flex-shrink: 0;
 }
 
-.program-sheets-container {
+.program-sheets-container,
+.ta-sheets-container {
   display: flex;
   flex-direction: column;
   gap: 2rem;
@@ -315,12 +316,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
-  background: #0f172a;
-  color: #ffffff;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
+  overflow: hidden;
   flex-shrink: 0;
+  background: #ffffff;
+}
+
+.header-crest-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .header-text-center {
@@ -471,8 +479,12 @@
   padding: 0.35rem 0.2rem;
 }
 
-.th-day-col-master {
-  width: 80px;
+.th-day-col-master,
+.td-day-col-master {
+  width: 96px;
+  min-width: 90px;
+  max-width: 110px;
+  box-sizing: border-box;
 }
 
 .th-period-master {
@@ -498,20 +510,28 @@
   background: #f1f5f9;
   text-align: center;
   vertical-align: middle !important;
-  padding: 0.35rem !important;
+  padding: 0.35rem 0.25rem !important;
+  overflow: hidden;
 }
 
 .day-name-bold {
   font-weight: 800;
-  font-size: 0.775rem;
+  font-size: 0.725rem;
   color: #0f172a;
   text-transform: uppercase;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
 }
 
 .day-name-sub {
   font-size: 0.625rem;
   color: #64748b;
   margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
 }
 
 .td-slot-cell {
@@ -684,13 +704,32 @@
   color: #0f172a;
 }
 
-.card-faculty-inline {
+.card-faculty-inline,
+.card-cohort-inline {
   font-size: 0.625rem;
   font-weight: 600;
   color: #334155;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.card-cohort-inline {
+  color: #1e40af;
+  background: rgba(37, 99, 235, 0.08);
+  padding: 0.5px 4px;
+  border-radius: 2px;
+}
+
+.ta-summary-bar .summary-col-title {
+  color: #1e3a8a;
+}
+
+.ta-empty-workload {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-style: italic;
+  padding: 0.2rem 0;
 }
 
 /* Course Index Reference */
@@ -795,8 +834,8 @@
 }
 
 .density-compact .header-university-crest {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
 }
 
 .density-compact .univ-title {
@@ -831,12 +870,25 @@
   font-size: 0.6rem;
 }
 
+.density-compact .th-day-col-master,
 .density-compact .td-day-col-master {
-  padding: 0.2rem !important;
+  width: 88px;
+  min-width: 84px;
+  max-width: 96px;
+  padding: 0.2rem 0.2rem !important;
 }
 
 .density-compact .day-name-bold {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.density-compact .day-name-sub {
+  font-size: 0.55rem;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .density-compact .td-slot-cell {
@@ -971,7 +1023,8 @@
     width: 100% !important;
   }
 
-  .program-sheets-container {
+  .program-sheets-container,
+  .ta-sheets-container {
     gap: 0 !important;
     display: block !important;
   }
@@ -1048,10 +1101,15 @@
     padding: 2px !important;
   }
 
+  .th-day-col-master,
   .td-day-col-master {
+    width: 94px !important;
+    min-width: 88px !important;
     background-color: #f1f5f9 !important;
     color: #000000 !important;
     border: 1px solid #000000 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
   }
 
   .td-day-banner {

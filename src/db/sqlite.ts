@@ -1,5 +1,6 @@
 import initSqlJs, { type Database } from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
+import { seedAiCurriculum } from './aiCurriculumData';
 
 const DB_INDEXED_DB_NAME = 'UniversityScheduleDB';
 const DB_STORE_NAME = 'sqlite_binary';
@@ -144,7 +145,8 @@ CREATE TABLE IF NOT EXISTS professors (
   department TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   phone TEXT,
-  office TEXT
+  office TEXT,
+  available_days TEXT
 );
 
 CREATE TABLE IF NOT EXISTS rooms (
@@ -164,8 +166,22 @@ CREATE TABLE IF NOT EXISTS courses (
   credit_hours INTEGER NOT NULL,
   department TEXT NOT NULL,
   year_id INTEGER NOT NULL,
+  program_id INTEGER, -- NULL = Common Core / All Programs in this Year
   color_hex TEXT NOT NULL DEFAULT '#3b82f6',
-  FOREIGN KEY (year_id) REFERENCES academic_years(id) ON DELETE CASCADE
+  prerequisite_ids TEXT, -- JSON array of dependent course IDs, e.g. '[1, 2]'
+  semester INTEGER NOT NULL DEFAULT 1,
+  target_group TEXT NOT NULL DEFAULT 'ALL', -- 'ALL', 'GROUP_A', 'GROUP_B'
+  has_sections INTEGER NOT NULL DEFAULT 1, -- 1 = has sections/labs, 0 = lecture only
+  FOREIGN KEY (year_id) REFERENCES academic_years(id) ON DELETE CASCADE,
+  FOREIGN KEY (program_id) REFERENCES programs(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS course_dependencies (
+  course_id INTEGER NOT NULL,
+  prerequisite_id INTEGER NOT NULL,
+  PRIMARY KEY (course_id, prerequisite_id),
+  FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+  FOREIGN KEY (prerequisite_id) REFERENCES courses(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS standard_periods (
@@ -213,13 +229,12 @@ INSERT INTO academic_years (id, code, name, semester) VALUES
 (4, 'YEAR_4', 'Year 4 - Senior', 'Fall Semester 2026'),
 (5, 'YEAR_PREP', 'Preparatory Year', 'Fall Semester 2026');
 
--- Standard Periods
+-- Standard Periods (10:00 AM to 03:45 PM)
 INSERT INTO standard_periods (period_number, start_time, end_time, label) VALUES
-(1, '08:30', '10:00', 'Period 1 (08:30 - 10:00)'),
-(2, '10:15', '11:45', 'Period 2 (10:15 - 11:45)'),
-(3, '12:00', '13:30', 'Period 3 (12:00 - 13:30)'),
-(4, '13:45', '15:15', 'Period 4 (13:45 - 15:15)'),
-(5, '15:30', '17:00', 'Period 5 (15:30 - 17:00)');
+(1, '10:00', '11:15', 'Period 1 (10:00 - 11:15)'),
+(2, '11:30', '12:45', 'Period 2 (11:30 - 12:45)'),
+(3, '13:00', '14:15', 'Period 3 (01:00 - 02:15)'),
+(4, '14:30', '15:45', 'Period 4 (02:30 - 03:45)');
 `;
 
 // Optional demo/sample university dataset (can be loaded on demand)
@@ -256,22 +271,20 @@ INSERT INTO sections (year_id, program_id, name, capacity) VALUES
 (4, 2, 'SE Section 1 (Enterprise Capstone)', 25),
 (4, 3, 'AI Section 1 (Deep Learning Capstone)', 25);
 
--- Sections for Preparatory Year (General Cohort)
+-- Sections for Preparatory Year (Two Parallel Groups with Independent Timetables: Group A & Group B)
 INSERT INTO sections (year_id, program_id, name, capacity) VALUES
-(5, NULL, 'Prep Section 1', 35),
-(5, NULL, 'Prep Section 2', 35),
-(5, NULL, 'Prep Section 3', 35),
-(5, NULL, 'Prep Section 4', 35);
+(5, NULL, 'Group A', 150),
+(5, NULL, 'Group B', 150);
 
 -- Professors & Teaching Assistants
-INSERT INTO professors (name, title, department, email, phone, office) VALUES
-('Dr. Alan Turing', 'Prof.', 'Computer Science', 'a.turing@univ.edu', '+1-555-0101', 'Hall 301'),
-('Dr. Grace Hopper', 'Prof.', 'Software Engineering', 'g.hopper@univ.edu', '+1-555-0102', 'Hall 304'),
-('Dr. Donald Knuth', 'Prof.', 'Algorithms & Mathematics', 'd.knuth@univ.edu', '+1-555-0103', 'Hall 205'),
-('Dr. Barbara Liskov', 'Prof.', 'Computer Systems', 'b.liskov@univ.edu', '+1-555-0104', 'Hall 310'),
-('Eng. David Patterson', 'TA', 'Computer Science', 'd.patterson@univ.edu', '+1-555-0201', 'Lab Tech 1'),
-('Eng. Margaret Hamilton', 'TA', 'Software Engineering', 'm.hamilton@univ.edu', '+1-555-0202', 'Lab Tech 2'),
-('Eng. Linus Torvalds', 'TA', 'Operating Systems', 'l.torvalds@univ.edu', '+1-555-0203', 'Lab Tech 3');
+INSERT INTO professors (name, title, department, email, phone, office, available_days) VALUES
+('Dr. Alan Turing', 'Prof.', 'Computer Science', 'a.turing@univ.edu', '+1-555-0101', 'Hall 301', '[0,2,4]'),
+('Dr. Grace Hopper', 'Prof.', 'Software Engineering', 'g.hopper@univ.edu', '+1-555-0102', 'Hall 304', '[1,3]'),
+('Dr. Donald Knuth', 'Prof.', 'Algorithms & Mathematics', 'd.knuth@univ.edu', '+1-555-0103', 'Hall 205', '[0,1,2]'),
+('Dr. Barbara Liskov', 'Prof.', 'Computer Systems', 'b.liskov@univ.edu', '+1-555-0104', 'Hall 310', NULL),
+('Eng. David Patterson', 'TA', 'Computer Science', 'd.patterson@univ.edu', '+1-555-0201', 'Lab Tech 1', '[0,1,2,3,4]'),
+('Eng. Margaret Hamilton', 'TA', 'Software Engineering', 'm.hamilton@univ.edu', '+1-555-0202', 'Lab Tech 2', '[0,2,3]'),
+('Eng. Linus Torvalds', 'TA', 'Operating Systems', 'l.torvalds@univ.edu', '+1-555-0203', 'Lab Tech 3', '[1,2,4]');
 
 -- Rooms
 INSERT INTO rooms (code, name, type, capacity, building, floor) VALUES
@@ -285,60 +298,109 @@ INSERT INTO rooms (code, name, type, capacity, building, floor) VALUES
 ('ROOM-302', 'Tutorial Classroom 302', 'TUTORIAL_ROOM', 45, 'Building B - Science', 3);
 
 -- Courses
-INSERT INTO courses (code, name, credit_hours, department, year_id, color_hex) VALUES
-('CS101', 'Introduction to Programming & Logic', 3, 'Computer Science', 1, '#3b82f6'),
-('MATH101', 'Calculus & Analytical Geometry', 3, 'Mathematics', 1, '#8b5cf6'),
-('PHYS101', 'General Physics for Engineers', 3, 'Physics', 1, '#06b6d4'),
-('CS201', 'Data Structures & Algorithms', 3, 'Computer Science', 2, '#10b981'),
-('CS202', 'Object-Oriented Programming (Java)', 3, 'Software Engineering', 2, '#f59e0b'),
-('CS203', 'Computer Architecture & Assembly', 3, 'Computer Science', 2, '#ef4444'),
-('CS301', 'Database Systems & SQL Design', 3, 'Computer Science', 3, '#ec4899'),
-('CS302', 'Operating Systems & Concurrency', 3, 'Computer Science', 3, '#6366f1'),
-('CS303', 'Computer Networks & Protocols', 3, 'Networks', 3, '#14b8a6'),
-('CS401', 'Artificial Intelligence & ML', 3, 'Computer Science', 4, '#84cc16'),
-('CS499', 'Senior Capstone Graduation Project', 4, 'Software Engineering', 4, '#a855f7'),
-('MATH001', 'Engineering Mathematics I (Calculus & Algebra)', 3, 'Basic Sciences', 5, '#3b82f6'),
-('PHYS001', 'Engineering Physics (Mechanics & Waves)', 3, 'Basic Sciences', 5, '#06b6d4'),
-('ENG001', 'Engineering Graphics & Descriptive Geometry', 3, 'General Engineering', 5, '#f59e0b'),
-('CHEM001', 'General Chemistry for Engineers', 3, 'Basic Sciences', 5, '#10b981');
+INSERT INTO courses (id, code, name, credit_hours, department, year_id, program_id, color_hex, prerequisite_ids) VALUES
+(1, 'CS101', 'Introduction to Programming & Logic', 3, 'Computer Science', 1, 1, '#3b82f6', NULL),
+(2, 'MATH101', 'Calculus & Analytical Geometry', 3, 'Mathematics', 1, NULL, '#8b5cf6', NULL),
+(3, 'PHYS101', 'General Physics for Engineers', 3, 'Physics', 1, NULL, '#06b6d4', NULL),
+(4, 'CS201', 'Data Structures & Algorithms', 3, 'Computer Science', 2, 1, '#10b981', '[1]'),
+(5, 'CS202', 'Object-Oriented Programming (Java)', 3, 'Software Engineering', 2, 2, '#f59e0b', '[1]'),
+(6, 'CS203', 'Computer Architecture & Assembly', 3, 'Computer Science', 2, 1, '#ef4444', '[1]'),
+(7, 'CS301', 'Database Systems & SQL Design', 3, 'Computer Science', 3, 1, '#ec4899', '[4]'),
+(8, 'CS302', 'Operating Systems & Concurrency', 3, 'Computer Science', 3, 1, '#6366f1', '[6]'),
+(9, 'CS303', 'Computer Networks & Protocols', 3, 'Networks', 3, 4, '#14b8a6', '[6]'),
+(10, 'CS401', 'Artificial Intelligence & ML', 3, 'Computer Science', 4, 3, '#84cc16', '[2,4]'),
+(11, 'CS499', 'Senior Capstone Graduation Project', 4, 'Software Engineering', 4, 2, '#a855f7', '[5,7]'),
+(12, 'MATH001', 'Engineering Mathematics I (Calculus & Algebra)', 3, 'Basic Sciences', 5, NULL, '#3b82f6', NULL),
+(13, 'PHYS001', 'Engineering Physics (Mechanics & Waves)', 3, 'Basic Sciences', 5, NULL, '#06b6d4', NULL),
+(14, 'ENG001', 'Engineering Graphics & Descriptive Geometry', 3, 'General Engineering', 5, NULL, '#f59e0b', NULL),
+(15, 'CHEM001', 'General Chemistry for Engineers', 3, 'Basic Sciences', 5, NULL, '#10b981', NULL);
+
+-- Course Dependencies (GPA System)
+INSERT INTO course_dependencies (course_id, prerequisite_id) VALUES
+(4, 1),
+(5, 1),
+(6, 1),
+(7, 4),
+(8, 6),
+(9, 6),
+(10, 2),
+(10, 4),
+(11, 5),
+(11, 7);
 
 -- Schedules
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (1, NULL, 1, 1, 1, 0, 1, '08:30', '10:00', 'LECTURE', 'Mandatory attendance for all Year 1');
-
+VALUES (1, NULL, 1, 1, 1, 0, 1, '10:00', '11:15', 'LECTURE', 'Mandatory attendance for all Year 1');
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (1, 1, 1, 5, 4, 0, 2, '10:15', '11:45', 'SECTION', 'CS Section 1: Practical coding exercises in C++');
-
+VALUES (1, 1, 1, 5, 4, 0, 2, '11:30', '12:45', 'SECTION', 'CS Section 1 Practical Lab');
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (1, 3, 1, 6, 5, 0, 2, '10:15', '11:45', 'SECTION', 'SE Section 1: Software Design & Testing Lab');
-
+VALUES (1, 2, 1, 6, 5, 0, 2, '11:30', '12:45', 'SECTION', 'CS Section 2 Practical Lab');
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (2, NULL, 4, 3, 2, 0, 1, '08:30', '10:00', 'LECTURE', 'Algorithm complexity analysis');
-
+VALUES (2, 3, 4, 7, 4, 1, 2, '11:30', '12:45', 'SECTION', 'Algorithms & Data Structures Practical Section');
 INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
-VALUES (2, NULL, 5, 2, 1, 1, 2, '10:15', '11:45', 'LECTURE', 'OOP Principles and Design Patterns');
+VALUES (2, NULL, 4, 2, 2, 0, 3, '13:00', '14:15', 'LECTURE', 'Year 2 Algorithms Lecture (Moved to P3 to avoid GPA conflict with CS101)');
+INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+VALUES (3, NULL, 7, 3, 3, 1, 1, '10:00', '11:15', 'LECTURE', 'Year 3 Database Theory');
+INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+VALUES (4, NULL, 10, 1, 1, 2, 1, '10:00', '11:15', 'LECTURE', 'Year 4 AI & Neural Networks');
+INSERT INTO schedules (academic_year_id, section_id, course_id, professor_id, room_id, day_of_week, period_id, start_time, end_time, session_type, notes)
+VALUES (5, NULL, 12, 1, 1, 0, 1, '10:00', '11:15', 'LECTURE', 'Preparatory Calculus Lecture');
 `;
 
-function migrateExistingDatabase(db: Database) {
+const PROGRAMS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS programs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  department TEXT NOT NULL
+);
+`;
+
+// Helper: migrate existing DB schemas if new columns or tables are introduced
+export function migrateExistingDatabase(db: Database) {
   try {
-    // 1. Create programs table if missing
-    db.run(`
-      CREATE TABLE IF NOT EXISTS programs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        code TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        department TEXT NOT NULL
-      );
-    `);
+    // 1. Ensure programs table exists
+    db.run(PROGRAMS_TABLE_SQL);
 
     // 2. Check if program_id column exists in sections
-    const pragmaRes = db.exec('PRAGMA table_info(sections);');
-    const cols = (pragmaRes[0]?.values || []).map((row) => String(row[1]));
+    const secPragma = db.exec('PRAGMA table_info(sections);');
+    const cols = (secPragma[0]?.values || []).map((row) => String(row[1]));
     if (!cols.includes('program_id')) {
       db.run('ALTER TABLE sections ADD COLUMN program_id INTEGER REFERENCES programs(id) ON DELETE SET NULL;');
     }
 
-    // 3. Ensure YEAR_PREP academic year level exists
+    // 3. Ensure standard_periods table exists and has 10:00 to 15:45 periods (10.00:11.15, 11.30:12.45, 13.00:14.15, 14.30:15.45)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS standard_periods (
+        id INTEGER PRIMARY KEY,
+        period_number INTEGER,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        label TEXT NOT NULL
+      );
+    `);
+    const periodsCheck = db.exec("SELECT end_time FROM standard_periods WHERE id = 1 OR period_number = 1;");
+    const firstPeriodEnd = periodsCheck?.[0]?.values?.[0]?.[0];
+    if (firstPeriodEnd !== '11:15') {
+      db.run(`
+        DELETE FROM standard_periods;
+        INSERT INTO standard_periods (id, period_number, start_time, end_time, label) VALUES
+        (1, 1, '10:00', '11:15', 'Period 1 (10:00 - 11:15)'),
+        (2, 2, '11:30', '12:45', 'Period 2 (11:30 - 12:45)'),
+        (3, 3, '13:00', '14:15', 'Period 3 (01:00 - 02:15)'),
+        (4, 4, '14:30', '15:45', 'Period 4 (02:30 - 03:45)');
+      `);
+      // Update any existing schedules referencing old period timings
+      db.run(`
+        UPDATE schedules SET start_time = '10:00', end_time = '11:15' WHERE period_id = 1;
+        UPDATE schedules SET start_time = '11:30', end_time = '12:45' WHERE period_id = 2;
+        UPDATE schedules SET start_time = '13:00', end_time = '14:15' WHERE period_id = 3;
+        UPDATE schedules SET start_time = '14:30', end_time = '15:45' WHERE period_id = 4;
+        UPDATE schedules SET period_id = 4, start_time = '14:30', end_time = '15:45' WHERE period_id >= 5;
+      `);
+    }
+
+    // 4. Ensure YEAR_PREP academic year level exists
     const prepCheck = db.exec("SELECT id FROM academic_years WHERE code = 'YEAR_PREP' OR name LIKE '%Prep%';");
     if (!prepCheck || prepCheck.length === 0 || !prepCheck[0].values.length) {
       db.run(`
@@ -347,8 +409,67 @@ function migrateExistingDatabase(db: Database) {
       `);
     }
 
-    // Note: No automatic insertion of sample courses, sections, or schedules is done here,
-    // ensuring the database stays completely empty if reset by the user.
+    // 5. Check if available_days column exists in professors table
+    const profPragma = db.exec('PRAGMA table_info(professors);');
+    const profCols = (profPragma[0]?.values || []).map((row) => String(row[1]));
+    if (!profCols.includes('available_days')) {
+      db.run('ALTER TABLE professors ADD COLUMN available_days TEXT;');
+    }
+
+    // 6. Check if prerequisite_ids column exists in courses table
+    const coursePragma = db.exec('PRAGMA table_info(courses);');
+    const courseCols = (coursePragma[0]?.values || []).map((row) => String(row[1]));
+    if (!courseCols.includes('prerequisite_ids')) {
+      db.run('ALTER TABLE courses ADD COLUMN prerequisite_ids TEXT;');
+    }
+
+    // Ensure course_dependencies table exists
+    db.run(`
+      CREATE TABLE IF NOT EXISTS course_dependencies (
+        course_id INTEGER NOT NULL,
+        prerequisite_id INTEGER NOT NULL,
+        PRIMARY KEY (course_id, prerequisite_id),
+        FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+        FOREIGN KEY (prerequisite_id) REFERENCES courses(id) ON DELETE CASCADE
+      );
+    `);
+
+    // 7. Check if program_id column exists in courses table
+    if (!courseCols.includes('program_id')) {
+      db.run('ALTER TABLE courses ADD COLUMN program_id INTEGER REFERENCES programs(id) ON DELETE SET NULL;');
+    }
+
+    // 8. Check if semester column exists in courses table
+    if (!courseCols.includes('semester')) {
+      db.run('ALTER TABLE courses ADD COLUMN semester INTEGER NOT NULL DEFAULT 1;');
+    }
+
+    // 9. Check if target_group column exists in courses table
+    if (!courseCols.includes('target_group')) {
+      db.run("ALTER TABLE courses ADD COLUMN target_group TEXT NOT NULL DEFAULT 'ALL';");
+    }
+
+    // 10. Check if has_sections column exists in courses table
+    if (!courseCols.includes('has_sections')) {
+      db.run("ALTER TABLE courses ADD COLUMN has_sections INTEGER NOT NULL DEFAULT 1;");
+    }
+
+    // 11. Ensure AI curriculum subjects & prerequisite dependency links from template.xlsx exist
+    seedAiCurriculum(db);
+
+    // 9. Ensure Preparatory Year (YEAR_PREP / id: 5) has Group A and Group B
+    const prepYearCheck = db.exec("SELECT id FROM academic_years WHERE code = 'YEAR_PREP' OR name LIKE '%Prep%';");
+    if (prepYearCheck.length > 0 && prepYearCheck[0].values.length > 0) {
+      const prepYearId = Number(prepYearCheck[0].values[0][0]);
+      const prepSecRes = db.exec(`SELECT name FROM sections WHERE year_id = ${prepYearId};`);
+      const existingNames = (prepSecRes[0]?.values || []).map((r) => String(r[0]));
+      if (!existingNames.some((n) => /group\s*a\b/i.test(n))) {
+        db.run(`INSERT INTO sections (year_id, program_id, name, capacity) VALUES (${prepYearId}, NULL, 'Group A', 150);`);
+      }
+      if (!existingNames.some((n) => /group\s*b\b/i.test(n))) {
+        db.run(`INSERT INTO sections (year_id, program_id, name, capacity) VALUES (${prepYearId}, NULL, 'Group B', 150);`);
+      }
+    }
   } catch (err) {
     console.warn('Database migration note:', err);
   }
@@ -375,11 +496,12 @@ export async function getSqliteDb(): Promise<Database> {
       }
     }
 
-    // Initialize fresh DB with empty schema and bootstrap structure (no sample data)
-    console.log('Initializing fresh SQLite database with clean schema (empty, no sample data)...');
+    // Initialize fresh DB with empty schema, bootstrap structure, and official AI curriculum
+    console.log('Initializing fresh SQLite database with clean schema and AI curriculum...');
     const freshDb = new SQL.Database() as Database;
     freshDb.run(SCHEMA_SQL);
     freshDb.run(SYSTEM_BOOTSTRAP_SQL);
+    seedAiCurriculum(freshDb);
     dbInstance = freshDb;
     await saveToIndexedDB(freshDb);
 
@@ -435,10 +557,26 @@ export async function loadSampleUniversityData(): Promise<Database> {
   sampleDb.run(SCHEMA_SQL);
   sampleDb.run(SYSTEM_BOOTSTRAP_SQL);
   sampleDb.run(SAMPLE_DATA_SQL);
+  seedAiCurriculum(sampleDb);
   dbInstance = sampleDb;
   await saveToIndexedDB(sampleDb);
-  console.log('Sample university dataset loaded successfully.');
+  console.log('Sample university dataset loaded successfully with AI curriculum.');
   return sampleDb;
+}
+
+/**
+ * Manually synchronize or re-seed the AI curriculum and its 26 prerequisite dependencies
+ * extracted from template.xlsx into the currently active database.
+ */
+export async function syncAiCurriculumFromTemplate(): Promise<{
+  insertedCount: number;
+  updatedCount: number;
+  prereqsLinked: number;
+}> {
+  const db = await getSqliteDb();
+  const res = seedAiCurriculum(db);
+  await saveToIndexedDB(db);
+  return res;
 }
 
 export async function exportDatabaseFile(): Promise<void> {
